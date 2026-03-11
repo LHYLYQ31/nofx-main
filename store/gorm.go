@@ -20,7 +20,7 @@ func DB() *gorm.DB {
 
 // InitGorm initializes GORM with SQLite
 func InitGorm(dbPath string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: dbPath}, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 		// Use UTC for all auto-generated timestamps (autoCreateTime, autoUpdateTime)
 		NowFunc: func() time.Time {

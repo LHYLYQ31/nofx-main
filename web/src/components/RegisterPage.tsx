@@ -122,7 +122,7 @@ export function RegisterPage() {
           <div className="flex justify-center mb-6">
             <div className="relative">
               <div className="absolute -inset-2 bg-nofx-gold/20 rounded-full blur-xl animate-pulse"></div>
-              <img src="/icons/nofx.svg" alt="NoFx Logo" className="w-16 h-16 object-contain relative z-10 opacity-90" />
+              <img src="/icons/logo.jpg" alt="NewMoneyClub Logo" className="w-16 h-16 object-contain relative z-10 opacity-90" />
             </div>
           </div>
           <h1 className="text-3xl font-bold tracking-tighter text-white uppercase mb-2">

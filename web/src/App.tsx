@@ -12,6 +12,7 @@ import { CompetitionPage } from './components/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
+import { StrategyPermissionPage } from './pages/StrategyPermissionPage'
 import { DebateArenaPage } from './pages/DebateArenaPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
@@ -24,6 +25,7 @@ import { t } from './i18n/translations'
 import { useSystemConfig } from './hooks/useSystemConfig'
 
 import { OFFICIAL_LINKS } from './constants/branding'
+import { BRANDING } from './constants/branding'
 import { BacktestPage } from './components/BacktestPage'
 import type {
   SystemStatus,
@@ -41,6 +43,7 @@ type Page =
   | 'trader'
   | 'backtest'
   | 'strategy'
+  | 'strategy-permissions'
   | 'strategy-market'
   | 'data'
   | 'debate'
@@ -64,11 +67,14 @@ function App() {
   // 从URL路径读取初始页面状态（支持刷新保持页面）
   const getInitialPage = (): Page => {
     const path = window.location.pathname
-    const hash = window.location.hash.slice(1) // 去掉 #
+  
+  const hash = window.location.hash.slice(1) // 去掉 #
 
     if (path === '/traders' || hash === 'traders') return 'traders'
     if (path === '/backtest' || hash === 'backtest') return 'backtest'
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
+    if (path === '/strategy-permissions' || hash === 'strategy-permissions')
+      return 'strategy-permissions'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/data' || hash === 'data') return 'data'
     if (path === '/debate' || hash === 'debate') return 'debate'
@@ -96,6 +102,7 @@ function App() {
       'trader': '/dashboard',
       'backtest': '/backtest',
       'strategy': '/strategy',
+      'strategy-permissions': '/strategy-permissions',
       'debate': '/debate',
       'faq': '/faq',
       'login': '/login',
@@ -154,6 +161,11 @@ function App() {
         setCurrentPage('backtest')
       } else if (path === '/strategy' || hash === 'strategy') {
         setCurrentPage('strategy')
+      } else if (
+        path === '/strategy-permissions' ||
+        hash === 'strategy-permissions'
+      ) {
+        setCurrentPage('strategy-permissions')
       } else if (path === '/strategy-market' || hash === 'strategy-market') {
         setCurrentPage('strategy-market')
       } else if (path === '/data' || hash === 'data') {
@@ -331,8 +343,8 @@ function App() {
       >
         <div className="text-center">
           <img
-            src="/icons/nofx.svg"
-            alt="NoFx Logo"
+            src={BRANDING.logoSrc}
+            alt={BRANDING.logoAlt}
             className="w-16 h-16 mx-auto mb-4 animate-pulse"
           />
           <p style={{ color: '#EAECEF' }}>{t('loading', language)}</p>
@@ -387,6 +399,7 @@ function App() {
         'trader': '/dashboard',
         'backtest': '/backtest',
         'strategy': '/strategy',
+        'strategy-permissions': '/strategy-permissions',
         'debate': '/debate',
         'faq': '/faq',
       }
@@ -474,8 +487,15 @@ function App() {
               />
             ) : currentPage === 'backtest' ? (
               <BacktestPage />
-            ) : currentPage === 'strategy' ? (
+            ) : currentPage === 'strategy' && user?.role === 'ADMIN' ? (
               <StrategyStudioPage />
+            ) : currentPage === 'strategy-permissions' &&
+              user?.role === 'ADMIN' ? (
+              <StrategyPermissionPage />
+            ) : currentPage === 'strategy' ? (
+              <AITradersPage />
+            ) : currentPage === 'strategy-permissions' ? (
+              <AITradersPage />
             ) : currentPage === 'debate' ? (
               <DebateArenaPage />
             ) : (
@@ -528,41 +548,13 @@ function App() {
             <p>{t('footerTitle', language)}</p>
             <p className="mt-1">{t('footerWarning', language)}</p>
             <div className="mt-4 flex items-center justify-center gap-3 flex-wrap">
-              {/* GitHub */}
-              <a
-                href={OFFICIAL_LINKS.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition-all hover:scale-105"
-                style={{
-                  background: '#1E2329',
-                  color: '#848E9C',
-                  border: '1px solid #2B3139',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#2B3139'
-                  e.currentTarget.style.color = '#EAECEF'
-                  e.currentTarget.style.borderColor = '#F0B90B'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#1E2329'
-                  e.currentTarget.style.color = '#848E9C'
-                  e.currentTarget.style.borderColor = '#2B3139'
-                }}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                >
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                </svg>
-                GitHub
-              </a>
               {/* Twitter/X */}
+
               <a
-                href={OFFICIAL_LINKS.twitter}
+                href={OFFICIAL_LINKS.twitter || '#'}
+                onClick={(e) => {
+                  if (!OFFICIAL_LINKS.twitter) e.preventDefault()
+                }}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition-all hover:scale-105"

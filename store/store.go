@@ -18,17 +18,18 @@ type Store struct {
 	driver *DBDriver // Database driver for abstraction (legacy)
 
 	// Sub-stores (lazy initialization)
-	user     *UserStore
-	aiModel  *AIModelStore
-	exchange *ExchangeStore
-	trader   *TraderStore
-	decision *DecisionStore
-	backtest *BacktestStore
-	position *PositionStore
-	strategy *StrategyStore
-	equity   *EquityStore
-	order    *OrderStore
-	grid     *GridStore
+	user                   *UserStore
+	aiModel                *AIModelStore
+	exchange               *ExchangeStore
+	trader                 *TraderStore
+	decision               *DecisionStore
+	backtest               *BacktestStore
+	position               *PositionStore
+	strategy               *StrategyStore
+	equity                 *EquityStore
+	order                  *OrderStore
+	grid                   *GridStore
+	userStrategyPermission *UserStrategyPermissionStore
 
 	mu sync.RWMutex
 }
@@ -159,6 +160,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.Grid().InitTables(); err != nil {
 		return fmt.Errorf("failed to initialize grid tables: %w", err)
+	}
+	if err := s.UserStrategyPermission().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize user strategy permission tables: %w", err)
 	}
 	return nil
 }
@@ -291,6 +295,16 @@ func (s *Store) Grid() *GridStore {
 		s.grid = NewGridStore(s.gdb)
 	}
 	return s.grid
+}
+
+// UserStrategyPermission gets user strategy permission storage
+func (s *Store) UserStrategyPermission() *UserStrategyPermissionStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.userStrategyPermission == nil {
+		s.userStrategyPermission = NewUserStrategyPermissionStore(s.gdb)
+	}
+	return s.userStrategyPermission
 }
 
 // Close closes database connection

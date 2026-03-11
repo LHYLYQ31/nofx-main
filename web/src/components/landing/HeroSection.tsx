@@ -1,9 +1,8 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, Play, Github, Zap } from 'lucide-react'
+import { ArrowRight, Play, Zap } from 'lucide-react'
 import { t, Language } from '../../i18n/translations'
 import { useGitHubStats } from '../../hooks/useGitHubStats'
 import { useCounterAnimation } from '../../hooks/useCounterAnimation'
-import { OFFICIAL_LINKS } from '../../constants/branding'
 
 interface HeroSectionProps {
   language: Language
@@ -72,21 +71,21 @@ export default function HeroSection({ language }: HeroSectionProps) {
           <Zap className="w-4 h-4" style={{ color: '#F0B90B' }} />
           <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
             {isLoading ? (
-              t('githubStarsInDays', language)
+              language === 'zh' ? '?????' : 'Community growth'
             ) : language === 'zh' ? (
               <>
                 {daysOld} 天内获得{' '}
                 <span className="font-bold tabular-nums">
                   {(animatedStars / 1000).toFixed(1)}K+
                 </span>{' '}
-                GitHub Stars
+                ????
               </>
             ) : (
               <>
                 <span className="font-bold tabular-nums">
                   {(animatedStars / 1000).toFixed(1)}K+
                 </span>{' '}
-                GitHub Stars in {daysOld} days
+                Community stars in {daysOld} days
               </>
             )}
           </span>
@@ -156,27 +155,6 @@ export default function HeroSection({ language }: HeroSectionProps) {
             {t('liveCompetition', language) || 'Live Competition'}
             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
           </motion.a>
-
-          <motion.a
-            href={OFFICIAL_LINKS.github}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg transition-all"
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: '#EAECEF',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-            }}
-            whileHover={{
-              scale: 1.02,
-              background: 'rgba(255, 255, 255, 0.08)',
-              borderColor: 'rgba(240, 185, 11, 0.3)',
-            }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Github className="w-5 h-5" />
-            {t('viewSourceCode', language)}
-          </motion.a>
         </motion.div>
 
         {/* Stats Row */}
@@ -187,7 +165,7 @@ export default function HeroSection({ language }: HeroSectionProps) {
           className="flex flex-wrap items-center justify-center gap-8 sm:gap-12"
         >
           {[
-            { label: 'GitHub Stars', value: `${(stars / 1000).toFixed(1)}K+` },
+            { label: language === 'zh' ? '????' : 'Community Stars', value: `${(stars / 1000).toFixed(1)}K+` },
             { label: language === 'zh' ? '支持交易所' : 'Exchanges', value: '5+' },
             { label: language === 'zh' ? 'AI 模型' : 'AI Models', value: '10+' },
             { label: language === 'zh' ? '开源免费' : 'Open Source', value: '100%' },

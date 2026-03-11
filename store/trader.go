@@ -203,8 +203,21 @@ func (s *TraderStore) GetFullConfig(userID, traderID string) (*TraderFullConfig,
 // getStrategyByID internal method: gets strategy by ID
 func (s *TraderStore) getStrategyByID(userID, strategyID string) (*Strategy, error) {
 	var strategy Strategy
-	err := s.db.Where("id = ? AND (user_id = ? OR is_default = ?)", strategyID, userID, true).
-		First(&strategy).Error
+	now := time.Now().UTC()
+	err := s.db.Where(
+		`id = ? AND (
+			user_id = ? OR
+			is_default = ? OR
+			EXISTS (
+				SELECT 1
+				FROM user_strategy_permissions usp
+				WHERE usp.user_id = ?
+					AND usp.strategy_id = strategies.id
+					AND (usp.expires_at IS NULL OR usp.expires_at > ?)
+			)
+		)`,
+		strategyID, userID, true, userID, now,
+	).First(&strategy).Error
 	if err != nil {
 		return nil, err
 	}

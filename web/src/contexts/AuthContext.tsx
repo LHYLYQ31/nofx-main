@@ -5,6 +5,7 @@ import { reset401Flag, httpClient } from '../lib/httpClient'
 interface User {
   id: string
   email: string
+  role: 'ADMIN' | 'USER'
 }
 
 interface AuthContextType {
@@ -41,7 +42,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+	const normalizeUser = (raw: any): User => ({
+		id: raw?.id || '',
+		email: raw?.email || '',
+		role: raw?.role === 'ADMIN' ? 'ADMIN' : 'USER',
+	})
+
+	useEffect(() => {
     // Reset 401 flag on page load to allow fresh 401 handling
     reset401Flag()
 
@@ -51,10 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 不再在管理员模式下模拟登录；统一检查本地存储
         const savedToken = localStorage.getItem('auth_token')
         const savedUser = localStorage.getItem('auth_user')
-        if (savedToken && savedUser) {
-          setToken(savedToken)
-          setUser(JSON.parse(savedUser))
-        }
+		if (savedToken && savedUser) {
+			setToken(savedToken)
+			setUser(normalizeUser(JSON.parse(savedUser)))
+		}
 
         setIsLoading(false)
       })
@@ -64,10 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const savedToken = localStorage.getItem('auth_token')
         const savedUser = localStorage.getItem('auth_user')
 
-        if (savedToken && savedUser) {
-          setToken(savedToken)
-          setUser(JSON.parse(savedUser))
-        }
+		if (savedToken && savedUser) {
+			setToken(savedToken)
+			setUser(normalizeUser(JSON.parse(savedUser)))
+		}
         setIsLoading(false)
       })
   }, [])
@@ -106,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Reset 401 flag on successful login
           reset401Flag()
 
-          const userInfo = { id: data.user_id, email: data.email }
+          const userInfo = { id: data.user_id, email: data.email, role: data.role || 'USER' }
           setToken(data.token)
           setUser(userInfo)
           localStorage.setItem('auth_token', data.token)
@@ -155,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const userInfo = {
           id: data.user_id || 'admin',
           email: data.email || 'admin@localhost',
+          role: 'ADMIN' as const,
         }
         setToken(data.token)
         setUser(userInfo)
@@ -200,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token: string
         user_id: string
         email: string
+        role: 'ADMIN' | 'USER'
         message: string
       }>('/api/register', requestBody)
 
@@ -207,7 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Reset 401 flag on successful login
         reset401Flag()
 
-        const userInfo = { id: result.data.user_id, email: result.data.email }
+        const userInfo = { id: result.data.user_id, email: result.data.email, role: result.data.role || 'USER' }
         setToken(result.data.token)
         setUser(userInfo)
         localStorage.setItem('auth_token', result.data.token)

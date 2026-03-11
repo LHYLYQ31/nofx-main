@@ -1,6 +1,7 @@
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { Container } from './Container'
+import { BRANDING } from '../constants/branding'
 
 interface HeaderProps {
   simple?: boolean // For login/register pages
@@ -16,11 +17,11 @@ export function Header({ simple = false }: HeaderProps) {
           {/* Left - Logo and Title */}
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center">
-              <img src="/icons/nofx.svg" alt="NoFx Logo" className="w-8 h-8" />
+              <img src={BRANDING.logoSrc} alt={BRANDING.logoAlt} className="w-8 h-8" />
             </div>
             <div>
               <h1 className="text-xl font-bold" style={{ color: '#EAECEF' }}>
-                {t('appTitle', language)}
+                {BRANDING.productName}
               </h1>
               {!simple && (
                 <p className="text-xs mono" style={{ color: '#848E9C' }}>

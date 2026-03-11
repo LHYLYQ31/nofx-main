@@ -257,10 +257,10 @@ func TestXyzSzDecimalsLookup(t *testing.T) {
 func TestXyzOrderParameters(t *testing.T) {
 	// Simulate order parameter calculation
 	testCases := []struct {
-		price       float64
-		size        float64
-		szDecimals  int
-		expectedSz  float64
+		price      float64
+		size       float64
+		szDecimals int
+		expectedSz float64
 	}{
 		{75.33, 1.0, 2, 1.00},
 		{75.33, 1.234, 2, 1.23},
@@ -508,7 +508,7 @@ func TestXyzDexLiveOrder(t *testing.T) {
 	t.Logf("Wallet: %s", walletAddr)
 
 	// Create trader instance
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestXyzDexLiveOrder(t *testing.T) {
 
 	// Place a test order (minimum $10 value = 0.14 SILVER at ~$75)
 	// With 5% slippage for IOC (market order)
-	testSize := 0.14 // ~$10.5 at current price
+	testSize := 0.14          // ~$10.5 at current price
 	testPrice := price * 1.05 // 5% above market for IOC buy (market order)
 
 	t.Logf("Attempting to place order:")
@@ -587,7 +587,7 @@ func TestXyzDexClosePosition(t *testing.T) {
 	t.Logf("Wallet: %s", walletAddr)
 
 	// Create trader instance
-	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false)
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, false, false)
 	if err != nil {
 		t.Fatalf("Failed to create trader: %v", err)
 	}

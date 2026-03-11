@@ -113,7 +113,7 @@ func (tm *TraderManager) StartAll() {
 		go func(traderID string, at *trader.AutoTrader) {
 			logger.Infof("▶️  Starting %s...", at.GetName())
 			if err := at.Run(); err != nil {
-				logger.Infof("❌ %s runtime error: %v", at.GetName(), err)
+				logger.Infof("�?%s runtime error: %v", at.GetName(), err)
 			}
 		}(id, t)
 	}
@@ -124,7 +124,7 @@ func (tm *TraderManager) StopAll() {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	logger.Info("⏹  Stopping all traders...")
+	logger.Info("�? Stopping all traders...")
 	for _, t := range tm.traders {
 		t.Stop()
 	}
@@ -161,7 +161,7 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 			go func(traderID string, at *trader.AutoTrader) {
 				logger.Infof("▶️  Auto-restoring %s...", at.GetName())
 				if err := at.Run(); err != nil {
-					logger.Infof("❌ %s runtime error: %v", at.GetName(), err)
+					logger.Infof("�?%s runtime error: %v", at.GetName(), err)
 				}
 			}(id, t)
 			startedCount++
@@ -169,7 +169,7 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 	}
 
 	if startedCount > 0 {
-		logger.Infof("✓ Auto-restored %d traders", startedCount)
+		logger.Infof("�?Auto-restored %d traders", startedCount)
 	}
 }
 
@@ -347,7 +347,7 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 				}
 			case <-ctx.Done():
 				// Timeout
-				logger.Infof("⏰ Timeout (10s) getting account info for trader %s (%s/%s)", trader.GetName(), trader.GetID(), trader.GetExchange())
+				logger.Infof("�?Timeout (10s) getting account info for trader %s (%s/%s)", trader.GetName(), trader.GetID(), trader.GetExchange())
 				traderData = map[string]interface{}{
 					"trader_id":              trader.GetID(),
 					"trader_name":            trader.GetName(),
@@ -418,11 +418,11 @@ func (tm *TraderManager) RemoveTrader(traderID string) {
 		// Stop the trader if it's running (this ensures the goroutine exits)
 		status := t.GetStatus()
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			logger.Infof("⏹ Stopping trader %s before removing from memory...", traderID)
+			logger.Infof("�?Stopping trader %s before removing from memory...", traderID)
 			t.Stop()
 		}
 		delete(tm.traders, traderID)
-		logger.Infof("✓ Trader %s removed from memory", traderID)
+		logger.Infof("�?Trader %s removed from memory", traderID)
 	}
 }
 
@@ -510,7 +510,7 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		logger.Infof("📦 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
-			logger.Infof("❌ Failed to load trader %s: %v", traderCfg.Name, err)
+			logger.Infof("�?Failed to load trader %s: %v", traderCfg.Name, err)
 			// Save error for later retrieval
 			tm.loadErrors[traderCfg.ID] = err
 		} else {
@@ -615,12 +615,12 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		// Add to TraderManager (ai500APIURL/oiTopAPIURL already obtained from strategy config)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
-			logger.Infof("❌ Failed to add trader %s: %v", traderCfg.Name, err)
+			logger.Infof("�?Failed to add trader %s: %v", traderCfg.Name, err)
 			continue
 		}
 	}
 
-	logger.Infof("✓ Successfully loaded %d traders to memory", len(tm.traders))
+	logger.Infof("�?Successfully loaded %d traders to memory", len(tm.traders))
 	return nil
 }
 
@@ -633,7 +633,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	// Load strategy config (must have strategy)
 	var strategyConfig *store.StrategyConfig
 	if traderCfg.StrategyID != "" {
-		strategy, err := st.Strategy().Get(traderCfg.UserID, traderCfg.StrategyID)
+		strategy, err := st.Strategy().GetAccessible(traderCfg.UserID, traderCfg.StrategyID)
 		if err != nil {
 			return fmt.Errorf("failed to load strategy %s for trader %s: %w", traderCfg.StrategyID, traderCfg.Name, err)
 		}
@@ -642,7 +642,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		if err != nil {
 			return fmt.Errorf("failed to parse strategy config for trader %s: %w", traderCfg.Name, err)
 		}
-		logger.Infof("✓ Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
+		logger.Infof("�?Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
 	} else {
 		return fmt.Errorf("trader %s has no strategy configured", traderCfg.Name)
 	}
@@ -737,14 +737,14 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		at.SetCustomPrompt(traderCfg.CustomPrompt)
 		at.SetOverrideBasePrompt(traderCfg.OverrideBasePrompt)
 		if traderCfg.OverrideBasePrompt {
-			logger.Infof("✓ Set custom trading strategy prompt (overriding base prompt)")
+			logger.Infof("�?Set custom trading strategy prompt (overriding base prompt)")
 		} else {
-			logger.Infof("✓ Set custom trading strategy prompt (supplementing base prompt)")
+			logger.Infof("�?Set custom trading strategy prompt (supplementing base prompt)")
 		}
 	}
 
 	tm.traders[traderCfg.ID] = at
-	logger.Infof("✓ Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
+	logger.Infof("�?Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
 
 	// Auto-start if trader was running before shutdown
 	if traderCfg.IsRunning {
@@ -758,7 +758,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 				}
 			}
 		}(at, traderCfg.Name, traderCfg.ID, traderCfg.UserID)
-		logger.Infof("✅ Trader '%s' auto-started successfully", traderCfg.Name)
+		logger.Infof("�?Trader '%s' auto-started successfully", traderCfg.Name)
 	}
 
 	return nil

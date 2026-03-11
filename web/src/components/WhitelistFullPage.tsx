@@ -90,7 +90,10 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
 
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <a
-                  href={OFFICIAL_LINKS.twitter}
+                  href={OFFICIAL_LINKS.twitter || '#'}
+                  onClick={(e) => {
+                    if (!OFFICIAL_LINKS.twitter) e.preventDefault()
+                  }}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 py-2 border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors text-[10px] uppercase"

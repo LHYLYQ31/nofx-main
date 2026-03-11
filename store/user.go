@@ -15,6 +15,7 @@ type UserStore struct {
 type User struct {
 	ID           string    `gorm:"primaryKey" json:"id"`
 	Email        string    `gorm:"uniqueIndex:idx_users_email;not null" json:"email"`
+	Role         string    `gorm:"column:role;not null;default:'USER';index" json:"role"`
 	PasswordHash string    `gorm:"column:password_hash;not null" json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -37,6 +38,7 @@ func (s *UserStore) initTables() error {
 			// Table exists - manually ensure all columns exist
 			// Core columns (should already exist)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'USER'`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
@@ -58,8 +60,16 @@ func (s *UserStore) initTables() error {
 	return s.db.AutoMigrate(&User{})
 }
 
+func normalizeRole(role string) string {
+	if role == "ADMIN" {
+		return "ADMIN"
+	}
+	return "USER"
+}
+
 // Create creates user
 func (s *UserStore) Create(user *User) error {
+	user.Role = normalizeRole(user.Role)
 	return s.db.Create(user).Error
 }
 
@@ -70,6 +80,7 @@ func (s *UserStore) GetByEmail(email string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	user.Role = normalizeRole(user.Role)
 	return &user, nil
 }
 
@@ -80,6 +91,7 @@ func (s *UserStore) GetByID(userID string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	user.Role = normalizeRole(user.Role)
 	return &user, nil
 }
 
@@ -95,6 +107,16 @@ func (s *UserStore) GetAllIDs() ([]string, error) {
 	var userIDs []string
 	err := s.db.Model(&User{}).Order("id").Pluck("id", &userIDs).Error
 	return userIDs, err
+}
+
+// List gets all users.
+func (s *UserStore) List() ([]*User, error) {
+	var users []*User
+	err := s.db.Order("created_at DESC").Find(&users).Error
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 // UpdatePassword updates password
@@ -115,6 +137,7 @@ func (s *UserStore) EnsureAdmin() error {
 	return s.Create(&User{
 		ID:           "admin",
 		Email:        "admin@localhost",
+		Role:         "ADMIN",
 		PasswordHash: "",
 	})
 }

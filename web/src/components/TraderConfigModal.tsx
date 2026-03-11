@@ -24,7 +24,7 @@ const EXCHANGE_REGISTRATION_LINKS: Record<string, { url: string; hasReferral?: b
 
 import type { TraderConfigData } from '../types'
 
-// 表单内部状态类型
+// 表单内部状态类�?
 interface FormState {
   trader_id?: string
   trader_name: string
@@ -71,20 +71,17 @@ export function TraderConfigModal({
   const [isFetchingBalance, setIsFetchingBalance] = useState(false)
   const [balanceFetchError, setBalanceFetchError] = useState<string>('')
 
-  // 获取用户的策略列表
+  // 获取用户的策略列�?
   useEffect(() => {
     const fetchStrategies = async () => {
       try {
-        const result = await httpClient.get<{ strategies: Strategy[] }>('/api/strategies')
+        const result = await httpClient.get<{ strategies: Strategy[] }>('/api/strategies/available')
         if (result.success && result.data?.strategies) {
           const strategyList = result.data.strategies
           setStrategies(strategyList)
           // 如果没有选择策略，默认选中激活的策略
           if (!formData.strategy_id && !isEditMode) {
-            const activeStrategy = strategyList.find(s => s.is_active)
-            if (activeStrategy) {
-              setFormData(prev => ({ ...prev, strategy_id: activeStrategy.id }))
-            } else if (strategyList.length > 0) {
+            if (strategyList.length > 0) {
               setFormData(prev => ({ ...prev, strategy_id: strategyList[0].id }))
             }
           }
@@ -363,16 +360,16 @@ export function TraderConfigModal({
                     )}
                   </div>
                   <p className="text-sm text-[#848E9C] mb-2">
-                    {selectedStrategy.description || (language === 'zh' ? '无描述' : 'No description')}
+                    {selectedStrategy.description || 'No description'}
                   </p>
                   <div className="grid grid-cols-2 gap-2 text-xs text-[#848E9C]">
                     <div>
-                      {t('coinSource', language)}: {selectedStrategy.config.coin_source.source_type === 'static' ? '固定币种' :
-                        selectedStrategy.config.coin_source.source_type === 'ai500' ? 'AI500' :
-                        selectedStrategy.config.coin_source.source_type === 'oi_top' ? 'OI Top' : '混合'}
+                      {t('coinSource', language)}: {selectedStrategy.config?.coin_source?.source_type === 'static' ? '固定币种' :
+                        selectedStrategy.config?.coin_source?.source_type === 'ai500' ? 'AI500' :
+                        selectedStrategy.config?.coin_source?.source_type === 'oi_top' ? 'OI Top' : '混合'}
                     </div>
                     <div>
-                      {t('marginLimit', language)}: {((selectedStrategy.config.risk_control?.max_margin_usage || 0.9) * 100).toFixed(0)}%
+                      {t('marginLimit', language)}: {((selectedStrategy.config?.risk_control?.max_margin_usage || 0.9) * 100).toFixed(0)}%
                     </div>
                   </div>
                 </div>

@@ -66,6 +66,7 @@ func IsTokenBlacklisted(token string) bool {
 type Claims struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -82,10 +83,11 @@ func CheckPassword(password, hash string) bool {
 }
 
 // GenerateJWT generates JWT token
-func GenerateJWT(userID, email string) (string, error) {
+func GenerateJWT(userID, email, role string) (string, error) {
 	claims := Claims{
 		UserID: userID,
 		Email:  email,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // Expires in 24 hours
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

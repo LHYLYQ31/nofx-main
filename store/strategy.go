@@ -21,8 +21,8 @@ type Strategy struct {
 	Description   string    `gorm:"default:''" json:"description"`
 	IsActive      bool      `gorm:"column:is_active;default:false;index" json:"is_active"`
 	IsDefault     bool      `gorm:"column:is_default;default:false" json:"is_default"`
-	IsPublic      bool      `gorm:"column:is_public;default:false;index" json:"is_public"`       // whether visible in strategy market
-	ConfigVisible bool      `gorm:"column:config_visible;default:true" json:"config_visible"`    // whether config details are visible
+	IsPublic      bool      `gorm:"column:is_public;default:false;index" json:"is_public"`    // whether visible in strategy market
+	ConfigVisible bool      `gorm:"column:config_visible;default:true" json:"config_visible"` // whether config details are visible
 	Config        string    `gorm:"not null;default:'{}'" json:"config"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -111,11 +111,11 @@ type CoinSourceConfig struct {
 	UseAI500 bool `json:"use_ai500"`
 	// AI500 coin pool maximum count
 	AI500Limit int `json:"ai500_limit,omitempty"`
-	// whether to use OI Top (持仓增加榜，适合做多)
+	// whether to use OI Top (闂備礁缍婇弲鎻掝渻閹烘柨鍨濋柕濠忛檮濞呯娀鏌ｉ幇顓炵祷妞ゎ偓绲鹃幈銊╁箳閹惧墎骞撶紓浣介哺缁诲牓寮婚崨鏉戠＜婵﹩鍘奸埀顑惧€濋弻娑氣偓锝庡亯婢规ɑ銇?
 	UseOITop bool `json:"use_oi_top"`
 	// OI Top maximum count
 	OITopLimit int `json:"oi_top_limit,omitempty"`
-	// whether to use OI Low (持仓减少榜，适合做空)
+	// whether to use OI Low (闂備礁缍婇弲鎻掝渻閹烘柨鍨濋柕濞炬櫅缁€鍕叓閸ャ劍灏垫慨锝呮湰閹便劑骞掗幘鍓佸箵缂備浇椴哥换鍫ュ蓟閸涙潙纾兼慨姗嗗幖閳ь兙鍊濋弻娑氣偓锝庡亝閻ㄦ垿鏌?
 	UseOILow bool `json:"use_oi_low"`
 	// OI Low maximum count
 	OILowLimit int `json:"oi_low_limit,omitempty"`
@@ -139,7 +139,7 @@ type IndicatorConfig struct {
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
-	EnableBOLL        bool `json:"enable_boll"`         // Bollinger Bands
+	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
@@ -197,10 +197,10 @@ type KlineConfig struct {
 
 // ExternalDataSource external data source configuration
 type ExternalDataSource struct {
-	Name        string            `json:"name"`         // data source name
-	Type        string            `json:"type"`         // type: "api" | "webhook"
-	URL         string            `json:"url"`          // API URL
-	Method      string            `json:"method"`       // HTTP method
+	Name        string            `json:"name"`   // data source name
+	Type        string            `json:"type"`   // type: "api" | "webhook"
+	URL         string            `json:"url"`    // API URL
+	Method      string            `json:"method"` // HTTP method
 	Headers     map[string]string `json:"headers,omitempty"`
 	DataPath    string            `json:"data_path,omitempty"`    // JSON data path
 	RefreshSecs int               `json:"refresh_secs,omitempty"` // refresh interval (seconds)
@@ -216,9 +216,9 @@ type RiskControlConfig struct {
 	// Altcoin exchange leverage for opening positions (AI guided)
 	AltcoinMaxLeverage int `json:"altcoin_max_leverage"`
 
-	// BTC/ETH single position max value = equity × this ratio (CODE ENFORCED, default: 5)
+	// BTC/ETH single position max value = equity 闂?this ratio (CODE ENFORCED, default: 5)
 	BTCETHMaxPositionValueRatio float64 `json:"btc_eth_max_position_value_ratio"`
-	// Altcoin single position max value = equity × this ratio (CODE ENFORCED, default: 1)
+	// Altcoin single position max value = equity 闂?this ratio (CODE ENFORCED, default: 1)
 	AltcoinMaxPositionValueRatio float64 `json:"altcoin_max_position_value_ratio"`
 
 	// Max margin utilization (e.g. 0.9 = 90%) (CODE ENFORCED)
@@ -308,57 +308,42 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingLimit:    10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                    3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:               5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:              5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:     5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio:    1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:                  0.9, // Max 90% margin usage (CODE ENFORCED)
-			MinPositionSize:                 12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:              3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                   75,  // Min 75% confidence (AI guided)
+			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
+			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
+			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
+			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
+			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
+			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
+			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
+			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
+			MinConfidence:                75,  // Min 75% confidence (AI guided)
 		},
 	}
 
 	if lang == "zh" {
 		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# 你是一个专业的加密货币交易AI
-
-你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。`,
-			TradingFrequency: `# ⏱️ 交易频率意识
-
-- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔
-- 每小时超过2笔 = 过度交易
-- 单笔持仓时间 ≥ 30-60分钟
-如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
-			EntryStandards: `# 🎯 入场标准（严格）
-
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
-			DecisionProcess: `# 📋 决策流程
-
-1. 检查持仓 → 是否止盈/止损
-2. 扫描候选币种 + 多时间框架 → 是否存在强信号
-3. 先写思维链，再输出结构化JSON`,
+			RoleDefinition:   "Professional crypto trading AI",
+			TradingFrequency: "Trade with disciplined frequency",
+			EntryStandards:   "Enter only with aligned high-quality signals",
+			DecisionProcess:  "Review positions, scan candidates, output structured decision",
 		}
 	} else {
 		config.PromptSections = PromptSectionsConfig{
 			RoleDefinition: `# You are a professional cryptocurrency trading AI
 
-Your task is to make trading decisions based on the provided market data. You are an experienced quantitative trader skilled in technical analysis and risk management.`,
-			TradingFrequency: `# ⏱️ Trading Frequency Awareness
+Your task is to make trading decisions based on provided market data.`,
+			TradingFrequency: `# Trading Frequency Awareness
 
-- Excellent trader: 2-4 trades per day ≈ 0.1-0.2 trades per hour
-- >2 trades per hour = overtrading
-- Single position holding time ≥ 30-60 minutes
-If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
-			EntryStandards: `# 🎯 Entry Standards (Strict)
+- 2-4 trades per day is generally healthier
+- Overtrading usually degrades decision quality`,
+			EntryStandards: `# Entry Standards (Strict)
 
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
-			DecisionProcess: `# 📋 Decision Process
+Enter only when multiple signals align and quality is sufficient.`,
+			DecisionProcess: `# Decision Process
 
-1. Check positions → whether to take profit/stop loss
-2. Scan candidate coins + multi-timeframe → whether strong signals exist
-3. Write chain of thought first, then output structured JSON`,
+1. Review existing positions
+2. Scan candidates across timeframes
+3. Output structured decisions`,
 		}
 	}
 
@@ -407,6 +392,31 @@ func (s *StrategyStore) List(userID string) ([]*Strategy, error) {
 	return strategies, nil
 }
 
+// ListAll gets all strategies across users (admin use).
+func (s *StrategyStore) ListAll() ([]*Strategy, error) {
+	var strategies []*Strategy
+	err := s.db.Order("is_default DESC, created_at DESC").Find(&strategies).Error
+	if err != nil {
+		return nil, err
+	}
+	return strategies, nil
+}
+
+// ListByIDs gets strategies by IDs.
+func (s *StrategyStore) ListByIDs(strategyIDs []string) ([]*Strategy, error) {
+	if len(strategyIDs) == 0 {
+		return []*Strategy{}, nil
+	}
+	var strategies []*Strategy
+	err := s.db.Where("id IN ?", strategyIDs).
+		Order("created_at DESC").
+		Find(&strategies).Error
+	if err != nil {
+		return nil, err
+	}
+	return strategies, nil
+}
+
 // ListPublic get all public strategies for the strategy market
 func (s *StrategyStore) ListPublic() ([]*Strategy, error) {
 	var strategies []*Strategy
@@ -424,6 +434,50 @@ func (s *StrategyStore) Get(userID, id string) (*Strategy, error) {
 	var st Strategy
 	err := s.db.Where("id = ? AND (user_id = ? OR is_default = ?)", id, userID, true).
 		First(&st).Error
+	if err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// GetAccessible gets a strategy that the user can access via ownership/default/grant.
+func (s *StrategyStore) GetAccessible(userID, id string) (*Strategy, error) {
+	var st Strategy
+
+	// 1) Owner can access own strategy directly.
+	if err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&st).Error; err == nil {
+		return &st, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	// 2) Everyone can access default strategy.
+	if err := s.db.Where("id = ? AND is_default = ?", id, true).First(&st).Error; err == nil {
+		return &st, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	// 3) Explicit grant through permission table.
+	hasAccess, err := NewUserStrategyPermissionStore(s.db).HasAccess(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAccess {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	// 4) Permission exists, fetch by ID.
+	if err := s.db.Where("id = ?", id).First(&st).Error; err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// GetByID gets a strategy by ID without user scoping.
+func (s *StrategyStore) GetByID(id string) (*Strategy, error) {
+	var st Strategy
+	err := s.db.Where("id = ?", id).First(&st).Error
 	if err != nil {
 		return nil, err
 	}

@@ -652,6 +652,14 @@ export const api = {
     return Array.isArray(strategies) ? strategies : []
   },
 
+  async getAvailableStrategies(): Promise<Strategy[]> {
+    const result = await httpClient.get<{ strategies: Strategy[] }>(
+      `${API_BASE}/strategies/available`
+    )
+    if (!result.success) throw new Error('获取可用策略失败')
+    return result.data?.strategies || []
+  },
+
   async getStrategy(strategyId: string): Promise<Strategy> {
     const result = await httpClient.get<Strategy>(`${API_BASE}/strategies/${strategyId}`)
     if (!result.success) throw new Error('获取策略失败')
@@ -708,6 +716,31 @@ export const api = {
     const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
     if (!result.success) throw new Error('复制策略失败')
     return result.data!
+  },
+
+  // Admin strategy permission APIs
+  async getAdminUsers(): Promise<Array<{ id: string; email: string; role: string }>> {
+    const result = await httpClient.get<{ users: Array<{ id: string; email: string; role: string }> }>(
+      `${API_BASE}/admin/users`
+    )
+    if (!result.success) throw new Error('????????')
+    return result.data?.users || []
+  },
+
+  async getAdminUserStrategyIDs(userID: string): Promise<string[]> {
+    const result = await httpClient.get<{ strategy_ids: string[] }>(
+      `${API_BASE}/admin/users/${userID}/strategies`
+    )
+    if (!result.success) throw new Error('??????????')
+    return result.data?.strategy_ids || []
+  },
+
+  async setAdminUserStrategyIDs(userID: string, strategyIDs: string[]): Promise<void> {
+    const result = await httpClient.put(
+      `${API_BASE}/admin/users/${userID}/strategies`,
+      { strategy_ids: strategyIDs }
+    )
+    if (!result.success) throw new Error('??????????')
   },
 
   // Debate Arena APIs

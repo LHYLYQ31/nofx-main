@@ -26,7 +26,7 @@ export interface FAQCategory {
 
 /**
  * FAQ Data Configuration
- * Comprehensive FAQ covering all aspects of NOFX
+ * Comprehensive FAQ covering all aspects of NewMoneyClub
  *
  * Categories:
  * 1. Getting Started - Basic concepts and overview

@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, Shield, Activity, CircuitBoard, Wifi, Globe, Zap, Star, GitFork, Users, MessageCircle } from 'lucide-react'
+import { ArrowRight, Shield, Activity, CircuitBoard, Wifi, Globe, Zap, MessageCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { useGitHubStats } from '../../../hooks/useGitHubStats'
 import AgentTerminal from '../brand/AgentTerminal'
 
 export default function TerminalHero() {
@@ -169,7 +168,7 @@ export default function TerminalHero() {
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-nofx-gold opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-nofx-gold"></span>
                         </span>
-                        <span className="text-xs font-mono text-nofx-gold tracking-widest">NOFX OPEN-SOURCE AGENTIC OS</span>
+                        <span className="text-xs font-mono text-nofx-gold tracking-widest">NewMoneyClub OPEN-SOURCE AGENTIC OS</span>
                     </motion.div>
 
                     {/* Main Title - Massive & Impactful */}
@@ -293,30 +292,7 @@ export default function TerminalHero() {
 import { OFFICIAL_LINKS } from '../../../constants/branding'
 
 function CommunityStats() {
-    const { stars, forks, contributors, isLoading, error } = useGitHubStats('NoFxAiOS', 'nofx')
-
     const stats = [
-        {
-            label: 'GITHUB STARS',
-            value: isLoading ? '...' : (error ? '10,500+' : stars.toLocaleString()),
-            icon: Star,
-            color: 'text-yellow-400',
-            href: OFFICIAL_LINKS.github
-        },
-        {
-            label: 'FORKS',
-            value: isLoading ? '...' : (error ? '2,800+' : forks.toLocaleString()),
-            icon: GitFork,
-            color: 'text-blue-400',
-            href: `${OFFICIAL_LINKS.github}/fork`
-        },
-        {
-            label: 'CONTRIBUTORS',
-            value: isLoading ? '...' : (contributors > 0 ? contributors : '50+'),
-            icon: Users,
-            color: 'text-green-400',
-            href: `${OFFICIAL_LINKS.github}/graphs/contributors`
-        },
         {
             label: 'DEV COMMUNITY',
             value: '6,600+',
@@ -327,7 +303,7 @@ function CommunityStats() {
     ]
 
     return (
-        <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl">
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
             {stats.map((stat, i) => (
                 <a
                     key={i}

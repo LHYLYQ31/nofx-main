@@ -15,6 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
+func isAdminRole(c *gin.Context) bool {
+	return c.GetString("role") == "ADMIN"
+}
+
 // validateStrategyConfig validates strategy configuration and returns warnings
 func validateStrategyConfig(config *store.StrategyConfig) []string {
 	var warnings []string
@@ -82,9 +86,15 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 
 	// Convert to frontend format
 	result := make([]gin.H, 0, len(strategies))
+	admin := isAdminRole(c)
 	for _, st := range strategies {
+		if !admin && st.UserID != userID {
+			continue
+		}
 		var config store.StrategyConfig
-		json.Unmarshal([]byte(st.Config), &config)
+		if admin {
+			json.Unmarshal([]byte(st.Config), &config)
+		}
 
 		result = append(result, gin.H{
 			"id":             st.ID,
@@ -94,15 +104,56 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 			"is_default":     st.IsDefault,
 			"is_public":      st.IsPublic,
 			"config_visible": st.ConfigVisible,
-			"config":         config,
 			"created_at":     st.CreatedAt,
 			"updated_at":     st.UpdatedAt,
 		})
+		if admin {
+			result[len(result)-1]["config"] = config
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"strategies": result,
 	})
+}
+
+// handleGetAvailableStrategies returns strategy list available to current user.
+func (s *Server) handleGetAvailableStrategies(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	admin := isAdminRole(c)
+	var strategies []*store.Strategy
+	var err error
+	if admin {
+		strategies, err = s.store.Strategy().ListAll()
+	} else {
+		ids, listErr := s.store.UserStrategyPermission().ListStrategyIDsByUser(userID)
+		if listErr != nil {
+			SafeInternalError(c, "Failed to get strategy permissions", listErr)
+			return
+		}
+		strategies, err = s.store.Strategy().ListByIDs(ids)
+	}
+	if err != nil {
+		SafeInternalError(c, "Failed to get strategy list", err)
+		return
+	}
+
+	result := make([]gin.H, 0, len(strategies))
+	for _, st := range strategies {
+		result = append(result, gin.H{
+			"id":          st.ID,
+			"name":        st.Name,
+			"description": st.Description,
+			"is_default":  st.IsDefault,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"strategies": result})
 }
 
 // handleGetStrategy Get single strategy
@@ -115,25 +166,52 @@ func (s *Server) handleGetStrategy(c *gin.Context) {
 		return
 	}
 
-	strategy, err := s.store.Strategy().Get(userID, strategyID)
+	var strategy *store.Strategy
+	var err error
+	if isAdminRole(c) {
+		strategy, err = s.store.Strategy().GetByID(strategyID)
+	} else {
+		strategy, err = s.store.Strategy().GetByID(strategyID)
+	}
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
 		return
 	}
 
-	var config store.StrategyConfig
-	json.Unmarshal([]byte(strategy.Config), &config)
+	admin := isAdminRole(c)
+	if !admin {
+		if strategy.UserID == userID {
+			// owner access
+		} else if strategy.IsDefault {
+			// system default access
+		} else {
+			hasAccess, permErr := s.store.UserStrategyPermission().HasAccess(userID, strategy.ID)
+			if permErr != nil {
+				SafeInternalError(c, "Failed to check strategy permission", permErr)
+				return
+			}
+			if !hasAccess {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Strategy access denied"})
+				return
+			}
+		}
+	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"id":          strategy.ID,
 		"name":        strategy.Name,
 		"description": strategy.Description,
 		"is_active":   strategy.IsActive,
 		"is_default":  strategy.IsDefault,
-		"config":      config,
 		"created_at":  strategy.CreatedAt,
 		"updated_at":  strategy.UpdatedAt,
-	})
+	}
+	if admin {
+		var config store.StrategyConfig
+		json.Unmarshal([]byte(strategy.Config), &config)
+		resp["config"] = config
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // handleCreateStrategy Create strategy
@@ -141,6 +219,10 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin permission required"})
 		return
 	}
 
@@ -198,6 +280,10 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin permission required"})
 		return
 	}
 
@@ -267,6 +353,10 @@ func (s *Server) handleDeleteStrategy(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin permission required"})
+		return
+	}
 
 	if err := s.store.Strategy().Delete(userID, strategyID); err != nil {
 		SafeInternalError(c, "Failed to delete strategy", err)
@@ -283,6 +373,10 @@ func (s *Server) handleActivateStrategy(c *gin.Context) {
 
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin permission required"})
 		return
 	}
 
@@ -377,9 +471,9 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 	}
 
 	var req struct {
-		Config          store.StrategyConfig `json:"config" binding:"required"`
-		AccountEquity   float64              `json:"account_equity"`
-		PromptVariant   string               `json:"prompt_variant"`
+		Config        store.StrategyConfig `json:"config" binding:"required"`
+		AccountEquity float64              `json:"account_equity"`
+		PromptVariant string               `json:"prompt_variant"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -642,4 +736,3 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 
 	return response, nil
 }
-

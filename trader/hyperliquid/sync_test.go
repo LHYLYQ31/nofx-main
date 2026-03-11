@@ -76,7 +76,7 @@ func TestHyperliquidOrderDirectionParsing(t *testing.T) {
 // TestHyperliquidPositionBuilding tests the complete flow of position building
 func TestHyperliquidPositionBuilding(t *testing.T) {
 	// Setup in-memory database
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: ":memory:"}, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 // TestHyperliquidBugScenario tests the exact bug we fixed
 func TestHyperliquidBugScenario(t *testing.T) {
 	// Setup database
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: ":memory:"}, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -328,13 +328,13 @@ func TestHyperliquidBugScenario(t *testing.T) {
 	// Account has 30 USDT, should not be able to hold 1.7 ETH
 
 	trades := []struct {
-		action   string
-		side     string
-		symbol   string
-		qty      float64
-		price    float64
-		fee      float64
-		pnl      float64
+		action string
+		side   string
+		symbol string
+		qty    float64
+		price  float64
+		fee    float64
+		pnl    float64
 	}{
 		// Order 853: Open Short
 		{"open_short", "SHORT", "ETHUSDT", 0.0472, 3500, 0.2, 0},
