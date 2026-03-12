@@ -100,12 +100,12 @@ export default function HeaderBar({
             {(() => {
               // Define all navigation tabs
               const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                { page: 'data', path: '/data', label: language === 'zh' ? '数据' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
-                { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '策略市场' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
+                { page: 'data', path: '/data', label: language === 'zh' ? '\u6570\u636e' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
+                { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '\u7b56\u7565\u5e02\u573a' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
                 { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
-                { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
+                { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                 { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -258,8 +258,8 @@ export default function HeaderBar({
                 onClick={() => setLanguageDropdownOpen(!languageDropdownOpen)}
                 className="flex items-center gap-2 px-3 py-2 rounded transition-colors text-nofx-text-muted hover:bg-white/5"
               >
-                <span className="text-lg">
-                  {language === 'zh' ? '🇨🇳' : language === 'id' ? '🇮🇩' : '🇺🇸'}
+                <span className="text-xs font-semibold">
+                  {language === 'zh' ? 'CN' : language === 'id' ? 'ID' : 'EN'}
                 </span>
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -274,8 +274,8 @@ export default function HeaderBar({
                     className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
                       ${language === 'zh' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
                   >
-                    <span className="text-base">🇨🇳</span>
-                    <span className="text-sm">中文</span>
+                    <span className="text-xs font-semibold">CN</span>
+                    <span className="text-sm">{'\u4e2d\u6587'}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -285,7 +285,7 @@ export default function HeaderBar({
                     className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
                       ${language === 'en' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
                   >
-                    <span className="text-base">🇺🇸</span>
+                    <span className="text-xs font-semibold">EN</span>
                     <span className="text-sm">English</span>
                   </button>
                   <button
@@ -296,7 +296,7 @@ export default function HeaderBar({
                     className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
                       ${language === 'id' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
                   >
-                    <span className="text-base">🇮🇩</span>
+                    <span className="text-xs font-semibold">ID</span>
                     <span className="text-sm">Bahasa</span>
                   </button>
                 </div>
@@ -340,12 +340,12 @@ export default function HeaderBar({
               <div className="flex flex-col gap-6 mb-12">
                 {(() => {
                   const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                    { page: 'data', path: '/data', label: language === 'zh' ? '数据' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
-                    { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '策略市场' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
+                { page: 'data', path: '/data', label: language === 'zh' ? '\u6570\u636e' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
+                { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '\u7b56\u7565\u5e02\u573a' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
                     { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
-                    { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
+                { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                     { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },

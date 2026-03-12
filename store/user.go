@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -67,8 +68,13 @@ func normalizeRole(role string) string {
 	return "USER"
 }
 
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // Create creates user
 func (s *UserStore) Create(user *User) error {
+	user.Email = normalizeEmail(user.Email)
 	user.Role = normalizeRole(user.Role)
 	return s.db.Create(user).Error
 }
@@ -76,7 +82,7 @@ func (s *UserStore) Create(user *User) error {
 // GetByEmail gets user by email
 func (s *UserStore) GetByEmail(email string) (*User, error) {
 	var user User
-	err := s.db.Where("email = ?", email).First(&user).Error
+	err := s.db.Where("email = ?", normalizeEmail(email)).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +105,13 @@ func (s *UserStore) GetByID(userID string) (*User, error) {
 func (s *UserStore) Count() (int, error) {
 	var count int64
 	err := s.db.Model(&User{}).Count(&count).Error
+	return int(count), err
+}
+
+// CountByRole returns the number of users by role.
+func (s *UserStore) CountByRole(role string) (int, error) {
+	var count int64
+	err := s.db.Model(&User{}).Where("role = ?", normalizeRole(role)).Count(&count).Error
 	return int(count), err
 }
 
@@ -127,17 +140,52 @@ func (s *UserStore) UpdatePassword(userID, passwordHash string) error {
 	}).Error
 }
 
+// UpdateRole updates a user's role.
+func (s *UserStore) UpdateRole(userID, role string) error {
+	return s.db.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"role":       normalizeRole(role),
+		"updated_at": time.Now().UTC(),
+	}).Error
+}
+
 // EnsureAdmin ensures admin user exists
 func (s *UserStore) EnsureAdmin() error {
-	var count int64
-	s.db.Model(&User{}).Where("id = ?", "admin").Count(&count)
-	if count > 0 {
+	return s.EnsureBootstrapAdmin("admin@example.com", "", func() string { return "admin" })
+}
+
+// EnsureBootstrapAdmin ensures the bootstrap admin account exists and has admin role.
+func (s *UserStore) EnsureBootstrapAdmin(email, passwordHash string, idFactory func() string) error {
+	normalizedEmail := normalizeEmail(email)
+	if normalizedEmail == "" {
+		normalizedEmail = "admin@example.com"
+	}
+
+	var existing User
+	err := s.db.Where("email = ?", normalizedEmail).First(&existing).Error
+	if err == nil {
+		if normalizeRole(existing.Role) != "ADMIN" {
+			return s.db.Model(&User{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
+				"role":       "ADMIN",
+				"updated_at": time.Now().UTC(),
+			}).Error
+		}
 		return nil
 	}
+	if err != gorm.ErrRecordNotFound {
+		return err
+	}
+
+	userID := "admin"
+	if idFactory != nil {
+		if generated := strings.TrimSpace(idFactory()); generated != "" {
+			userID = generated
+		}
+	}
+
 	return s.Create(&User{
-		ID:           "admin",
-		Email:        "admin@localhost",
+		ID:           userID,
+		Email:        normalizedEmail,
 		Role:         "ADMIN",
-		PasswordHash: "",
+		PasswordHash: passwordHash,
 	})
 }

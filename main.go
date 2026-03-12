@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -79,6 +80,19 @@ func main() {
 	}
 	defer st.Close()
 	backtest.UseDatabaseWithType(st.DB(), st.DBType() == store.DBTypePostgres)
+	superAdminMail := firstNonEmpty(os.Getenv("NOFX_SUPER_ADMIN_EMAIL"), os.Getenv("NOFX_ADMIN_EMAIL"), "admin@example.com")
+	superAdminPassword := firstNonEmpty(os.Getenv("NOFX_SUPER_ADMIN_PASSWORD"), os.Getenv("NOFX_ADMIN_PASSWORD"), "Admin@123456")
+	if superAdminPassword == "Admin@123456" {
+		logger.Warn("NOFX_SUPER_ADMIN_PASSWORD not set, using default password. Please change it immediately.")
+	}
+	superAdminPasswordHash, err := auth.HashPassword(superAdminPassword)
+	if err != nil {
+		logger.Fatalf("Failed to hash super admin password: %v", err)
+	}
+	if err := st.User().EnsureBootstrapAdmin(superAdminMail, superAdminPasswordHash, func() string { return uuid.New().String() }); err != nil {
+		logger.Fatalf("Failed to ensure super admin: %v", err)
+	}
+	logger.Infof("Super admin ensured: %s", superAdminMail)
 
 	// Initialize installation ID for experience improvement (anonymous statistics)
 	initInstallationID(st)
@@ -183,4 +197,13 @@ func initInstallationID(st *store.Store) {
 
 	// Set installation ID in experience module
 	experience.SetInstallationID(installationID)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

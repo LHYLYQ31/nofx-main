@@ -52,10 +52,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Reset 401 flag on page load to allow fresh 401 handling
     reset401Flag()
 
-    // 先检查是否为管理员模式（使用带缓存的系统配置获取）
+    // 鍏堟鏌ユ槸鍚︿负绠＄悊鍛樻ā寮忥紙浣跨敤甯︾紦瀛樼殑绯荤粺閰嶇疆鑾峰彇锛?
     getSystemConfig()
       .then(() => {
-        // 不再在管理员模式下模拟登录；统一检查本地存储
+        // 涓嶅啀鍦ㄧ鐞嗗憳妯″紡涓嬫ā鎷熺櫥褰曪紱缁熶竴妫€鏌ユ湰鍦板瓨鍌?
         const savedToken = localStorage.getItem('auth_token')
         const savedUser = localStorage.getItem('auth_user')
 		if (savedToken && savedUser) {
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => {
         console.error('Failed to fetch system config:', err)
-        // 发生错误时，继续检查本地存储
+        // 鍙戠敓閿欒鏃讹紝缁х画妫€鏌ユ湰鍦板瓨鍌?
         const savedToken = localStorage.getItem('auth_token')
         const savedUser = localStorage.getItem('auth_user')
 
@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             window.history.pushState({}, '', returnUrl)
             window.dispatchEvent(new PopStateEvent('popstate'))
           } else {
-            // 跳转到配置页面
+            // 璺宠浆鍒伴厤缃〉闈?
             window.history.pushState({}, '', '/traders')
             window.dispatchEvent(new PopStateEvent('popstate'))
           }
@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Unexpected success response
-        return { success: false, message: data.message || '登录响应异常' }
+        return { success: false, message: data.message || '鐧诲綍鍝嶅簲寮傚父' }
       } else {
         return {
           success: false,
@@ -143,25 +143,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error) {
-      return { success: false, message: '登录失败，请重试' }
+      return { success: false, message: '鐧诲綍澶辫触锛岃閲嶈瘯' }
     }
   }
 
   const loginAdmin = async (password: string) => {
     try {
-      const response = await fetch('/api/admin-login', {
+      const adminEmail = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'admin@example.com')
+        .trim()
+        .toLowerCase()
+
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: adminEmail, password }),
       })
       const data = await response.json()
       if (response.ok) {
+        if (data.role !== 'ADMIN') {
+          return { success: false, message: 'Current account is not admin' }
+        }
+
         // Reset 401 flag on successful login
         reset401Flag()
 
         const userInfo = {
           id: data.user_id || 'admin',
-          email: data.email || 'admin@localhost',
+          email: data.email || adminEmail,
           role: 'ADMIN' as const,
         }
         setToken(data.token)
@@ -176,16 +184,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.history.pushState({}, '', returnUrl)
           window.dispatchEvent(new PopStateEvent('popstate'))
         } else {
-          // 跳转到仪表盘
+          // 璺宠浆鍒颁华琛ㄧ洏
           window.history.pushState({}, '', '/dashboard')
           window.dispatchEvent(new PopStateEvent('popstate'))
         }
         return { success: true }
       } else {
-        return { success: false, message: data.error || '登录失败' }
+        return { success: false, message: data.error || 'Login failed' }
       }
     } catch (e) {
-      return { success: false, message: '登录失败，请重试' }
+      return { success: false, message: 'Login failed, please retry' }
     }
   }
 
@@ -229,7 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.history.pushState({}, '', returnUrl)
           window.dispatchEvent(new PopStateEvent('popstate'))
         } else {
-          // 跳转到配置页面
+          // 璺宠浆鍒伴厤缃〉闈?
           window.history.pushState({}, '', '/traders')
           window.dispatchEvent(new PopStateEvent('popstate'))
         }
@@ -278,7 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, message: data.error }
       }
     } catch (error) {
-      return { success: false, message: '密码重置失败，请重试' }
+      return { success: false, message: '瀵嗙爜閲嶇疆澶辫触锛岃閲嶈瘯' }
     }
   }
 

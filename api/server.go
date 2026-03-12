@@ -225,6 +225,7 @@ func (s *Server) setupRoutes() {
 			admin := protected.Group("/admin", s.requireAdmin())
 			{
 				admin.GET("/users", s.handleAdminListUsers)
+				admin.PUT("/users/:id/role", s.handleAdminSetUserRole)
 				admin.GET("/users/:id/strategies", s.handleAdminGetUserStrategies)
 				admin.PUT("/users/:id/strategies", s.handleAdminSetUserStrategies)
 			}
