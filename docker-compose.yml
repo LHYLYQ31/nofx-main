@@ -6,26 +6,38 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: nofx-trading
     restart: unless-stopped
-    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    stop_grace_period: 30s
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
-      - "6060:6060"  # pprof profiling
+      - "${NOFX_PPROF_PORT:-6060}:6060"
     volumes:
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
     environment:
-      - TZ=${TZ:-Asia/Shanghai}
-      - AI_MAX_TOKENS=8000
+      TZ: ${NOFX_TIMEZONE:-Asia/Shanghai}
+      API_SERVER_PORT: 8080
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-8000}
+      TRANSPORT_ENCRYPTION: ${TRANSPORT_ENCRYPTION:-false}
+      DB_TYPE: ${DB_TYPE:-sqlite}
+      DB_PATH: ${DB_PATH:-data/data.db}
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_NAME: ${DB_NAME:-}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      NOFX_SUPER_ADMIN_EMAIL: ${NOFX_SUPER_ADMIN_EMAIL:-admin@example.com}
+      NOFX_SUPER_ADMIN_PASSWORD: ${NOFX_SUPER_ADMIN_PASSWORD:-Admin@123456}
     networks:
       - nofx-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 90s
 
   # Frontend service (static serving and proxy)
   nofx-frontend:
@@ -39,13 +51,14 @@ services:
     networks:
       - nofx-network
     depends_on:
-      - nofx
+      nofx:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
 networks:
   nofx-network:

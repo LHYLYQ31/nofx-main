@@ -1,55 +1,62 @@
 # NOFX Production Deployment
-# 用户部署专用 - 使用官方预构建镜像
-#
-# 一键部署命令:
-# curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-#
-# 或手动部署:
-# curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
-# docker compose -f docker-compose.prod.yml up -d
+# Uses prebuilt images (latest tag), suitable for server deployment.
 
 services:
   nofx:
     image: ghcr.io/nofxaios/nofx/nofx-backend:latest
     container_name: nofx-trading
+    pull_policy: always
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
     volumes:
-      # Data directory for database and logs
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
     environment:
-      - TZ=${TZ:-Asia/Shanghai}
-      - AI_MAX_TOKENS=8000
+      TZ: ${NOFX_TIMEZONE:-Asia/Shanghai}
+      API_SERVER_PORT: 8080
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-8000}
+      TRANSPORT_ENCRYPTION: ${TRANSPORT_ENCRYPTION:-false}
+      DB_TYPE: ${DB_TYPE:-sqlite}
+      DB_PATH: ${DB_PATH:-data/data.db}
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_NAME: ${DB_NAME:-}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      NOFX_SUPER_ADMIN_EMAIL: ${NOFX_SUPER_ADMIN_EMAIL:-admin@example.com}
+      NOFX_SUPER_ADMIN_PASSWORD: ${NOFX_SUPER_ADMIN_PASSWORD:-Admin@123456}
     networks:
       - nofx-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 90s
 
   nofx-frontend:
     image: ghcr.io/nofxaios/nofx/nofx-frontend:latest
     container_name: nofx-frontend
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "${NOFX_FRONTEND_PORT:-3000}:80"
     networks:
       - nofx-network
     depends_on:
-      - nofx
+      nofx:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
 networks:
   nofx-network:
