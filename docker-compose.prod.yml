@@ -3,8 +3,8 @@
 
 services:
   nofx:
-    image: ghcr.io/nofxaios/nofx/nofx-backend:latest
-    container_name: nofx-trading
+    image: ghcr.io/lhylyq31/newmoneyclub/backend:latest
+    container_name: newmoneyclub-backend
     pull_policy: always
     restart: unless-stopped
     stop_grace_period: 30s
@@ -40,8 +40,8 @@ services:
       start_period: 90s
 
   nofx-frontend:
-    image: ghcr.io/nofxaios/nofx/nofx-frontend:latest
-    container_name: nofx-frontend
+    image: ghcr.io/lhylyq31/newmoneyclub/frontend:latest
+    container_name: newmoneyclub-frontend
     pull_policy: always
     restart: unless-stopped
     ports:
