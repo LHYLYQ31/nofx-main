@@ -76,7 +76,13 @@ func (s *Server) handleBacktestStart(c *gin.Context) {
 
 	// Load strategy config if strategy_id is provided
 	if cfg.StrategyID != "" {
-		strategy, err := s.store.Strategy().Get(cfg.UserID, cfg.StrategyID)
+		var strategy *store.Strategy
+		var err error
+		if isAdminRole(c) {
+			strategy, err = s.store.Strategy().GetByID(cfg.StrategyID)
+		} else {
+			strategy, err = s.store.Strategy().GetAccessible(cfg.UserID, cfg.StrategyID)
+		}
 		if err != nil {
 			SafeBadRequest(c, "Failed to load strategy")
 			return

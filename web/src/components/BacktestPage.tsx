@@ -790,7 +790,7 @@ export function BacktestPage() {
   const runs = runsResp?.items ?? []
 
   const { data: aiModels } = useSWR<AIModel[]>('ai-models', api.getModelConfigs, { refreshInterval: 30000 })
-  const { data: strategies } = useSWR<Strategy[]>('strategies', api.getStrategies, { refreshInterval: 30000 })
+  const { data: strategies } = useSWR<Strategy[]>('available-strategies', api.getAvailableStrategies, { refreshInterval: 30000 })
 
   const { data: status } = useSWR<BacktestStatusPayload>(
     selectedRunId ? ['bt-status', selectedRunId] : null,
