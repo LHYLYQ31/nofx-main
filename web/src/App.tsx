@@ -8,6 +8,7 @@ import { AITradersPage } from './components/AITradersPage'
 import { LoginPage } from './components/LoginPage'
 import { RegisterPage } from './components/RegisterPage'
 import { ResetPasswordPage } from './components/ResetPasswordPage'
+import { ChangePasswordPage } from './components/ChangePasswordPage'
 import { CompetitionPage } from './components/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
@@ -385,8 +386,11 @@ function App() {
       </div>
     )
   }
-  if (route === '/reset-password') {
+  if (route === '/reset-password' || route === '/forgot-password') {
     return <ResetPasswordPage />
+  }
+  if (route === '/change-password') {
+    return <ChangePasswordPage />
   }
   // Data page - publicly accessible with embedded dashboard
   if (route === '/data') {

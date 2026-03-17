@@ -44,6 +44,18 @@ type Config struct {
 	AlpacaAPIKey    string // Alpaca API key for US stocks
 	AlpacaSecretKey string // Alpaca secret key
 	TwelveDataKey   string // TwelveData API key for forex & metals
+
+	// Backtest showcase owner email. When set, all authenticated users can view this account's backtest runs.
+	BacktestShowcaseEmail string
+	// Deprecated fallback: showcase owner user_id.
+	BacktestShowcaseUserID string
+
+	// SMTP config (for password reset verification email)
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 // Init initializes global configuration (from .env)
@@ -61,6 +73,7 @@ func Init() {
 		DBUser:    "postgres",
 		DBName:    "nofx",
 		DBSSLMode: "disable",
+		SMTPPort:  587,
 	}
 
 	// Load from environment variables
@@ -103,6 +116,17 @@ func Init() {
 	cfg.AlpacaAPIKey = os.Getenv("ALPACA_API_KEY")
 	cfg.AlpacaSecretKey = os.Getenv("ALPACA_SECRET_KEY")
 	cfg.TwelveDataKey = os.Getenv("TWELVEDATA_API_KEY")
+	cfg.BacktestShowcaseEmail = strings.ToLower(strings.TrimSpace(os.Getenv("NOFX_BACKTEST_SHOWCASE_EMAIL")))
+	cfg.BacktestShowcaseUserID = strings.TrimSpace(os.Getenv("NOFX_BACKTEST_SHOWCASE_USER_ID"))
+	cfg.SMTPHost = strings.TrimSpace(os.Getenv("SMTP_HOST"))
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil && port > 0 {
+			cfg.SMTPPort = port
+		}
+	}
+	cfg.SMTPUser = strings.TrimSpace(os.Getenv("SMTP_USER"))
+	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
+	cfg.SMTPFrom = strings.TrimSpace(os.Getenv("SMTP_FROM"))
 
 	// Database configuration
 	if v := os.Getenv("DB_TYPE"); v != "" {

@@ -72,6 +72,7 @@ type EquityPoint struct {
 
 // TradeEvent trade event
 type TradeEvent struct {
+	ID              int64   `json:"id,omitempty"`
 	Timestamp       int64   `json:"timestamp"`
 	Symbol          string  `json:"symbol"`
 	Action          string  `json:"action"`
@@ -209,6 +210,20 @@ func (BacktestDecision) TableName() string {
 	return "backtest_decisions"
 }
 
+// BacktestCorrectionLog records manual corrections for audit.
+type BacktestCorrectionLog struct {
+	ID           int64     `gorm:"primaryKey;autoIncrement"`
+	RunID        string    `gorm:"column:run_id;not null;index:idx_backtest_corrections_run_created"`
+	EditorUserID string    `gorm:"column:editor_user_id;not null;index"`
+	Reason       string    `gorm:"column:reason;default:''"`
+	PatchJSON    []byte    `gorm:"column:patch_json;not null"`
+	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime;index:idx_backtest_corrections_run_created"`
+}
+
+func (BacktestCorrectionLog) TableName() string {
+	return "backtest_corrections"
+}
+
 // initTables initializes backtest related tables
 func (s *BacktestStore) initTables() error {
 	// For PostgreSQL with existing tables, skip AutoMigrate to avoid type conflicts
@@ -236,6 +251,7 @@ func (s *BacktestStore) initTables() error {
 		&BacktestTrade{},
 		&BacktestMetrics{},
 		&BacktestDecision{},
+		&BacktestCorrectionLog{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate backtest tables: %w", err)
 	}
@@ -401,6 +417,7 @@ func (s *BacktestStore) LoadTradeEvents(runID string) ([]TradeEvent, error) {
 	events := make([]TradeEvent, len(trades))
 	for i, trade := range trades {
 		events[i] = TradeEvent{
+			ID:              trade.ID,
 			Timestamp:       trade.TS,
 			Symbol:          trade.Symbol,
 			Action:          trade.Action,
@@ -571,4 +588,32 @@ func (s *BacktestStore) LoadConfig(runID string) ([]byte, error) {
 		return nil, err
 	}
 	return run.ConfigJSON, nil
+}
+
+// SaveCorrectionLog saves a manual correction audit record.
+func (s *BacktestStore) SaveCorrectionLog(runID, editorUserID, reason string, patchJSON []byte) error {
+	log := BacktestCorrectionLog{
+		RunID:        runID,
+		EditorUserID: editorUserID,
+		Reason:       reason,
+		PatchJSON:    patchJSON,
+	}
+	return s.db.Create(&log).Error
+}
+
+// UpdateTradeEvent updates editable fields of a backtest trade row by ID within a run.
+func (s *BacktestStore) UpdateTradeEvent(runID string, tradeID int64, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	result := s.db.Model(&BacktestTrade{}).
+		Where("id = ? AND run_id = ?", tradeID, runID).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

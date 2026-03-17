@@ -21,6 +21,8 @@ import type {
   BacktestMetrics,
   BacktestRunMetadata,
   BacktestKlinesResponse,
+  BacktestCorrectionPermission,
+  BacktestCorrectionRequest,
   Strategy,
   StrategyConfig,
   DebateSession,
@@ -479,6 +481,50 @@ export const api = {
       }
     )
     return handleJSONResponse<BacktestRunsResponse>(res)
+  },
+
+  async getBacktestShowcaseRuns(params?: {
+    state?: string
+    search?: string
+    limit?: number
+    offset?: number
+  }): Promise<BacktestRunsResponse> {
+    const query = new URLSearchParams()
+    if (params?.state) query.set('state', params.state)
+    if (params?.search) query.set('search', params.search)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const res = await fetch(
+      `${API_BASE}/backtest/showcase/runs${query.toString() ? `?${query}` : ''}`,
+      {
+        headers: getAuthHeaders(),
+      }
+    )
+    return handleJSONResponse<BacktestRunsResponse>(res)
+  },
+
+  async getBacktestCorrectionPermission(): Promise<BacktestCorrectionPermission> {
+    const res = await fetch(`${API_BASE}/backtest/correction/permission`, {
+      headers: getAuthHeaders(),
+    })
+    return handleJSONResponse<BacktestCorrectionPermission>(res)
+  },
+
+  async correctBacktestResult(request: BacktestCorrectionRequest): Promise<{
+    message: string
+    run: BacktestRunMetadata
+    metrics?: BacktestMetrics
+  }> {
+    const res = await fetch(`${API_BASE}/backtest/correction`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(request),
+    })
+    return handleJSONResponse<{
+      message: string
+      run: BacktestRunMetadata
+      metrics?: BacktestMetrics
+    }>(res)
   },
 
   async startBacktest(config: BacktestStartConfig): Promise<BacktestRunMetadata> {

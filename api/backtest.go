@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"nofx/config"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +22,7 @@ import (
 	"nofx/store"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func (s *Server) registerBacktestRoutes(router *gin.RouterGroup) {
@@ -30,6 +34,9 @@ func (s *Server) registerBacktestRoutes(router *gin.RouterGroup) {
 	router.POST("/delete", s.handleBacktestDelete)
 	router.GET("/status", s.handleBacktestStatus)
 	router.GET("/runs", s.handleBacktestRuns)
+	router.GET("/showcase/runs", s.handleBacktestShowcaseRuns)
+	router.GET("/correction/permission", s.handleBacktestCorrectionPermission)
+	router.POST("/correction", s.handleBacktestCorrection)
 	router.GET("/equity", s.handleBacktestEquity)
 	router.GET("/trades", s.handleBacktestTrades)
 	router.GET("/metrics", s.handleBacktestMetrics)
@@ -50,6 +57,61 @@ type runIDRequest struct {
 type labelRequest struct {
 	RunID string `json:"run_id"`
 	Label string `json:"label"`
+}
+
+type backtestCorrectionMetaPatch struct {
+	Label           *string  `json:"label"`
+	State           *string  `json:"state"`
+	LastError       *string  `json:"last_error"`
+	SymbolCount     *int     `json:"symbol_count"`
+	DecisionTF      *string  `json:"decision_tf"`
+	ProcessedBars   *int     `json:"processed_bars"`
+	ProgressPct     *float64 `json:"progress_pct"`
+	EquityLast      *float64 `json:"equity_last"`
+	MaxDrawdownPct  *float64 `json:"max_drawdown_pct"`
+	Liquidated      *bool    `json:"liquidated"`
+	LiquidationNote *string  `json:"liquidation_note"`
+}
+
+type backtestCorrectionMetricsPatch struct {
+	TotalReturnPct *float64 `json:"total_return_pct"`
+	MaxDrawdownPct *float64 `json:"max_drawdown_pct"`
+	SharpeRatio    *float64 `json:"sharpe_ratio"`
+	ProfitFactor   *float64 `json:"profit_factor"`
+	WinRate        *float64 `json:"win_rate"`
+	Trades         *int     `json:"trades"`
+	AvgWin         *float64 `json:"avg_win"`
+	AvgLoss        *float64 `json:"avg_loss"`
+	BestSymbol     *string  `json:"best_symbol"`
+	WorstSymbol    *string  `json:"worst_symbol"`
+	Liquidated     *bool    `json:"liquidated"`
+}
+
+type backtestCorrectionTradePatch struct {
+	TradeID         int64    `json:"trade_id" binding:"required"`
+	Timestamp       *int64   `json:"ts"`
+	Symbol          *string  `json:"symbol"`
+	Action          *string  `json:"action"`
+	Side            *string  `json:"side"`
+	Quantity        *float64 `json:"qty"`
+	Price           *float64 `json:"price"`
+	Fee             *float64 `json:"fee"`
+	Slippage        *float64 `json:"slippage"`
+	OrderValue      *float64 `json:"order_value"`
+	RealizedPnL     *float64 `json:"realized_pnl"`
+	Leverage        *int     `json:"leverage"`
+	Cycle           *int     `json:"cycle"`
+	PositionAfter   *float64 `json:"position_after"`
+	LiquidationFlag *bool    `json:"liquidation"`
+	Note            *string  `json:"note"`
+}
+
+type backtestCorrectionRequest struct {
+	RunID        string                          `json:"run_id" binding:"required"`
+	Reason       string                          `json:"reason"`
+	Meta         *backtestCorrectionMetaPatch    `json:"meta"`
+	Metrics      *backtestCorrectionMetricsPatch `json:"metrics"`
+	TradeUpdates []backtestCorrectionTradePatch  `json:"trade_updates"`
 }
 
 func (s *Server) handleBacktestStart(c *gin.Context) {
@@ -245,13 +307,13 @@ func (s *Server) handleBacktestStatus(c *gin.Context) {
 		return
 	}
 
-	meta, err := s.ensureBacktestRunOwnership(runID, userID)
+	meta, err := s.ensureBacktestRunReadAccess(runID, userID)
 	if writeBacktestAccessError(c, err) {
 		return
 	}
 
 	status := s.backtestManager.Status(runID)
-	if status != nil {
+	if status != nil && (status.State == backtest.RunStateRunning || status.State == backtest.RunStatePaused) {
 		c.JSON(http.StatusOK, status)
 		return
 	}
@@ -334,6 +396,267 @@ func (s *Server) handleBacktestRuns(c *gin.Context) {
 	})
 }
 
+func (s *Server) handleBacktestShowcaseRuns(c *gin.Context) {
+	if s.backtestManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
+		return
+	}
+	showcaseUserID := s.backtestShowcaseOwnerUserID()
+	if showcaseUserID == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"total": 0,
+			"items": []*backtest.RunMetadata{},
+		})
+		return
+	}
+
+	metas, err := s.backtestManager.ListRuns()
+	if err != nil {
+		SafeInternalError(c, "List backtest showcase runs", err)
+		return
+	}
+
+	stateFilter := strings.ToLower(strings.TrimSpace(c.Query("state")))
+	search := strings.ToLower(strings.TrimSpace(c.Query("search")))
+	limit := queryInt(c, "limit", 50)
+	offset := queryInt(c, "offset", 0)
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	filtered := make([]*backtest.RunMetadata, 0)
+	for _, meta := range metas {
+		owner := normalizeUserID(strings.TrimSpace(meta.UserID))
+		if owner != showcaseUserID {
+			continue
+		}
+		if stateFilter != "" && !strings.EqualFold(string(meta.State), stateFilter) {
+			continue
+		}
+		if search != "" {
+			target := strings.ToLower(meta.RunID + " " + meta.Summary.DecisionTF + " " + meta.Label + " " + meta.LastError)
+			if !strings.Contains(target, search) {
+				continue
+			}
+		}
+		filtered = append(filtered, meta)
+	}
+
+	total := len(filtered)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	page := filtered[start:end]
+
+	c.JSON(http.StatusOK, gin.H{
+		"total": total,
+		"items": page,
+	})
+}
+
+func (s *Server) handleBacktestCorrectionPermission(c *gin.Context) {
+	email := normalizeEmail(c.GetString("email"))
+	showcaseEmail := s.backtestShowcaseEmail()
+	c.JSON(http.StatusOK, gin.H{
+		"can_edit":         showcaseEmail != "" && email == showcaseEmail,
+		"showcase_enabled": showcaseEmail != "",
+	})
+}
+
+func (s *Server) handleBacktestCorrection(c *gin.Context) {
+	if s.backtestManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
+		return
+	}
+
+	userID := normalizeUserID(c.GetString("user_id"))
+	email := normalizeEmail(c.GetString("email"))
+	if !s.canEditBacktestCorrection(email) {
+		SafeForbidden(c, "Only showcase provider account can edit backtest results")
+		return
+	}
+
+	var req backtestCorrectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		SafeBadRequest(c, "run_id is required")
+		return
+	}
+
+	if runner, ok := s.backtestManager.GetRunner(runID); ok {
+		state := runner.Status()
+		if state == backtest.RunStateRunning || state == backtest.RunStatePaused {
+			SafeBadRequest(c, "Cannot correct a running or paused backtest")
+			return
+		}
+	}
+
+	meta, err := backtest.LoadRunMetadata(runID)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			SafeNotFound(c, "Backtest task")
+			return
+		}
+		SafeInternalError(c, "Load backtest metadata", err)
+		return
+	}
+
+	showcaseUserID := s.backtestShowcaseOwnerUserID()
+	ownerUserID := normalizeUserID(meta.UserID)
+	if ownerUserID != showcaseUserID {
+		SafeForbidden(c, "Only showcase provider account runs can be corrected")
+		return
+	}
+
+	if len(req.TradeUpdates) == 0 {
+		SafeBadRequest(c, "trade_updates is required")
+		return
+	}
+	if req.Meta != nil || req.Metrics != nil {
+		SafeBadRequest(c, "Only trade_updates is supported now; summary and metrics are recalculated automatically")
+		return
+	}
+
+	updatedMeta := false
+
+	var metrics *backtest.Metrics
+	updatedMetrics := false
+
+	for _, tradePatch := range req.TradeUpdates {
+		if tradePatch.TradeID <= 0 {
+			SafeBadRequest(c, "trade_updates.trade_id must be greater than 0")
+			return
+		}
+		updates := map[string]interface{}{}
+		if tradePatch.Timestamp != nil {
+			updates["ts"] = *tradePatch.Timestamp
+		}
+		if tradePatch.Symbol != nil {
+			updates["symbol"] = strings.TrimSpace(*tradePatch.Symbol)
+		}
+		if tradePatch.Action != nil {
+			updates["action"] = strings.TrimSpace(*tradePatch.Action)
+		}
+		if tradePatch.Side != nil {
+			updates["side"] = strings.TrimSpace(*tradePatch.Side)
+		}
+		if tradePatch.Quantity != nil {
+			updates["qty"] = *tradePatch.Quantity
+		}
+		if tradePatch.Price != nil {
+			updates["price"] = *tradePatch.Price
+		}
+		if tradePatch.Fee != nil {
+			updates["fee"] = *tradePatch.Fee
+		}
+		if tradePatch.Slippage != nil {
+			updates["slippage"] = *tradePatch.Slippage
+		}
+		if tradePatch.OrderValue != nil {
+			updates["order_value"] = *tradePatch.OrderValue
+		}
+		if tradePatch.RealizedPnL != nil {
+			updates["realized_pnl"] = *tradePatch.RealizedPnL
+		}
+		if tradePatch.Leverage != nil {
+			updates["leverage"] = *tradePatch.Leverage
+		}
+		if tradePatch.Cycle != nil {
+			updates["cycle"] = *tradePatch.Cycle
+		}
+		if tradePatch.PositionAfter != nil {
+			updates["position_after"] = *tradePatch.PositionAfter
+		}
+		if tradePatch.LiquidationFlag != nil {
+			updates["liquidation"] = *tradePatch.LiquidationFlag
+		}
+		if tradePatch.Note != nil {
+			updates["note"] = strings.TrimSpace(*tradePatch.Note)
+		}
+		if len(updates) == 0 {
+			continue
+		}
+		if err := s.store.Backtest().UpdateTradeEvent(runID, tradePatch.TradeID, updates); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				SafeBadRequest(c, fmt.Sprintf("trade id %d not found for run", tradePatch.TradeID))
+				return
+			}
+			SafeInternalError(c, "Save corrected trades", err)
+			return
+		}
+	}
+	if len(req.TradeUpdates) > 0 {
+		if err := s.recalculateTradeRealizedPnL(runID); err != nil {
+			SafeInternalError(c, "Recalculate trade realized PnL", err)
+			return
+		}
+		recalculatedMetrics, recalculatedPoints, lastEquity, err := recomputeCorrectionMetrics(runID, meta.Summary.Liquidated)
+		if err != nil {
+			SafeInternalError(c, "Recompute corrected backtest metrics", err)
+			return
+		}
+		if err := backtest.PersistEquityPoints(runID, recalculatedPoints); err != nil {
+			SafeInternalError(c, "Persist recalculated equity curve", err)
+			return
+		}
+		metrics = recalculatedMetrics
+		updatedMetrics = true
+		meta.Summary.EquityLast = lastEquity
+		meta.Summary.MaxDrawdownPct = recalculatedMetrics.MaxDrawdownPct
+		meta.Summary.Liquidated = recalculatedMetrics.Liquidated
+		updatedMeta = true
+	}
+
+	if updatedMeta {
+		if err := backtest.SaveRunMetadata(meta); err != nil {
+			SafeInternalError(c, "Save corrected run metadata", err)
+			return
+		}
+	}
+	if updatedMetrics && metrics != nil {
+		payload, err := json.Marshal(metrics)
+		if err != nil {
+			SafeInternalError(c, "Serialize corrected metrics", err)
+			return
+		}
+		if err := s.store.Backtest().SaveMetrics(runID, payload); err != nil {
+			SafeInternalError(c, "Save corrected metrics", err)
+			return
+		}
+	}
+
+	patchPayload, _ := json.Marshal(req)
+	if err := s.store.Backtest().SaveCorrectionLog(runID, userID, strings.TrimSpace(req.Reason), patchPayload); err != nil {
+		SafeInternalError(c, "Save correction audit log", err)
+		return
+	}
+
+	updatedRun, err := s.backtestManager.LoadMetadata(runID)
+	if err != nil {
+		SafeInternalError(c, "Reload corrected metadata", err)
+		return
+	}
+	updatedMetricsObj, _ := backtest.LoadMetrics(runID)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Backtest result corrected successfully",
+		"run":     updatedRun,
+		"metrics": updatedMetricsObj,
+	})
+}
+
 func (s *Server) handleBacktestEquity(c *gin.Context) {
 	if s.backtestManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
@@ -347,7 +670,7 @@ func (s *Server) handleBacktestEquity(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "run_id is required"})
 		return
 	}
-	if _, err := s.ensureBacktestRunOwnership(runID, userID); writeBacktestAccessError(c, err) {
+	if _, err := s.ensureBacktestRunReadAccess(runID, userID); writeBacktestAccessError(c, err) {
 		return
 	}
 	timeframe := c.Query("tf")
@@ -374,7 +697,7 @@ func (s *Server) handleBacktestTrades(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "run_id is required"})
 		return
 	}
-	if _, err := s.ensureBacktestRunOwnership(runID, userID); writeBacktestAccessError(c, err) {
+	if _, err := s.ensureBacktestRunReadAccess(runID, userID); writeBacktestAccessError(c, err) {
 		return
 	}
 	limit := queryInt(c, "limit", 1000)
@@ -400,7 +723,7 @@ func (s *Server) handleBacktestMetrics(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "run_id is required"})
 		return
 	}
-	if _, err := s.ensureBacktestRunOwnership(runID, userID); writeBacktestAccessError(c, err) {
+	if _, err := s.ensureBacktestRunReadAccess(runID, userID); writeBacktestAccessError(c, err) {
 		return
 	}
 
@@ -427,7 +750,7 @@ func (s *Server) handleBacktestTrace(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "run_id is required"})
 		return
 	}
-	if _, err := s.ensureBacktestRunOwnership(runID, userID); writeBacktestAccessError(c, err) {
+	if _, err := s.ensureBacktestRunReadAccess(runID, userID); writeBacktestAccessError(c, err) {
 		return
 	}
 	cycle := queryInt(c, "cycle", 0)
@@ -450,7 +773,7 @@ func (s *Server) handleBacktestDecisions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "run_id is required"})
 		return
 	}
-	if _, err := s.ensureBacktestRunOwnership(runID, userID); writeBacktestAccessError(c, err) {
+	if _, err := s.ensureBacktestRunReadAccess(runID, userID); writeBacktestAccessError(c, err) {
 		return
 	}
 	limit := queryInt(c, "limit", 20)
@@ -516,7 +839,7 @@ func (s *Server) handleBacktestKlines(c *gin.Context) {
 		return
 	}
 
-	meta, err := s.ensureBacktestRunOwnership(runID, userID)
+	meta, err := s.ensureBacktestRunReadAccess(runID, userID)
 	if writeBacktestAccessError(c, err) {
 		return
 	}
@@ -588,6 +911,335 @@ func queryInt(c *gin.Context, name string, fallback int) int {
 	return fallback
 }
 
+type tradeReplayPosition struct {
+	Qty     float64
+	Avg     float64
+	OpenFee float64
+}
+
+func (s *Server) recalculateTradeRealizedPnL(runID string) error {
+	events, err := backtest.LoadTradeEvents(runID)
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].Timestamp == events[j].Timestamp {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].Timestamp < events[j].Timestamp
+	})
+
+	positions := make(map[string]*tradeReplayPosition)
+	for i := range events {
+		evt := &events[i]
+		side := inferTradeSide(*evt)
+		if side == "" {
+			continue
+		}
+		key := evt.Symbol + "|" + side
+		pos := positions[key]
+		if pos == nil {
+			pos = &tradeReplayPosition{}
+			positions[key] = pos
+		}
+
+		isOpen := strings.Contains(strings.ToLower(evt.Action), "open")
+		isClose := strings.Contains(strings.ToLower(evt.Action), "close") || evt.LiquidationFlag
+		qty := evt.Quantity
+		if qty < 0 {
+			qty = -qty
+		}
+		if qty <= 0 {
+			continue
+		}
+
+		if isOpen {
+			newQty := pos.Qty + qty
+			if newQty > 0 {
+				pos.Avg = (pos.Avg*pos.Qty + evt.Price*qty) / newQty
+			}
+			pos.Qty = newQty
+			pos.OpenFee += evt.Fee
+			desiredPnL := 0.0
+			if math.Abs(evt.RealizedPnL-desiredPnL) > 1e-9 && evt.ID > 0 {
+				if err := s.store.Backtest().UpdateTradeEvent(runID, evt.ID, map[string]interface{}{"realized_pnl": desiredPnL}); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		if !isClose {
+			continue
+		}
+
+		closeQty := qty
+		if pos.Qty > 0 && closeQty > pos.Qty {
+			closeQty = pos.Qty
+		}
+		if closeQty <= 0 {
+			continue
+		}
+
+		grossPnL := (evt.Price - pos.Avg) * closeQty
+		if side == "short" {
+			grossPnL = (pos.Avg - evt.Price) * closeQty
+		}
+
+		openFeeShare := 0.0
+		if pos.Qty > 0 && pos.OpenFee != 0 {
+			openFeeShare = pos.OpenFee * (closeQty / pos.Qty)
+		}
+		desiredPnL := grossPnL - evt.Fee - openFeeShare
+
+		if math.Abs(evt.RealizedPnL-desiredPnL) > 1e-9 && evt.ID > 0 {
+			if err := s.store.Backtest().UpdateTradeEvent(runID, evt.ID, map[string]interface{}{"realized_pnl": desiredPnL}); err != nil {
+				return err
+			}
+		}
+
+		if pos.Qty > 0 {
+			pos.Qty -= closeQty
+			pos.OpenFee -= openFeeShare
+			if pos.Qty < 1e-12 {
+				pos.Qty = 0
+				pos.Avg = 0
+				pos.OpenFee = 0
+			}
+		}
+	}
+	return nil
+}
+
+func inferTradeSide(evt backtest.TradeEvent) string {
+	side := strings.ToLower(strings.TrimSpace(evt.Side))
+	if side == "long" || side == "short" {
+		return side
+	}
+	action := strings.ToLower(strings.TrimSpace(evt.Action))
+	if strings.Contains(action, "long") {
+		return "long"
+	}
+	if strings.Contains(action, "short") {
+		return "short"
+	}
+	return ""
+}
+
+func recomputeCorrectionMetrics(runID string, liquidatedHint bool) (*backtest.Metrics, []backtest.EquityPoint, float64, error) {
+	cfg, err := backtest.LoadConfig(runID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	events, err := backtest.LoadTradeEvents(runID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	initialBalance := cfg.InitialBalance
+	if initialBalance <= 0 {
+		initialBalance = 1
+	}
+	lastEquity := initialBalance
+	points := make([]backtest.EquityPoint, 0, len(events))
+	for _, evt := range events {
+		lastEquity += evt.RealizedPnL
+		points = append(points, backtest.EquityPoint{
+			Timestamp: evt.Timestamp,
+			Equity:    lastEquity,
+			Available: lastEquity,
+			PnL:       lastEquity - initialBalance,
+			PnLPct:    ((lastEquity - initialBalance) / initialBalance) * 100,
+			Cycle:     evt.Cycle,
+		})
+	}
+	applyDrawdownPct(points)
+
+	metrics := &backtest.Metrics{
+		SymbolStats: make(map[string]backtest.SymbolMetrics),
+		Liquidated:  liquidatedHint,
+	}
+	for _, evt := range events {
+		if evt.LiquidationFlag {
+			metrics.Liquidated = true
+			break
+		}
+	}
+	metrics.TotalReturnPct = ((lastEquity - initialBalance) / initialBalance) * 100
+	metrics.MaxDrawdownPct = maxDrawdownFromPoints(points)
+	metrics.SharpeRatio = sharpeRatioFromPoints(points)
+	fillTradeStats(metrics, events)
+
+	return metrics, points, lastEquity, nil
+}
+
+func applyDrawdownPct(points []backtest.EquityPoint) {
+	if len(points) == 0 {
+		return
+	}
+	peak := points[0].Equity
+	if peak <= 0 {
+		peak = 1
+	}
+	for i := range points {
+		if points[i].Equity > peak {
+			peak = points[i].Equity
+		}
+		if peak > 0 {
+			points[i].DrawdownPct = (peak - points[i].Equity) / peak * 100
+		}
+	}
+}
+
+func maxDrawdownFromPoints(points []backtest.EquityPoint) float64 {
+	if len(points) == 0 {
+		return 0
+	}
+	peak := points[0].Equity
+	if peak <= 0 {
+		peak = 1
+	}
+	maxDD := 0.0
+	for _, pt := range points {
+		if pt.Equity > peak {
+			peak = pt.Equity
+		}
+		if peak <= 0 {
+			continue
+		}
+		dd := (peak - pt.Equity) / peak * 100
+		if dd > maxDD {
+			maxDD = dd
+		}
+	}
+	return maxDD
+}
+
+func sharpeRatioFromPoints(points []backtest.EquityPoint) float64 {
+	const minDataPoints = 10
+	if len(points) < minDataPoints {
+		return 0
+	}
+	returns := make([]float64, 0, len(points)-1)
+	prev := points[0].Equity
+	for i := 1; i < len(points); i++ {
+		curr := points[i].Equity
+		if prev <= 0 {
+			prev = curr
+			continue
+		}
+		returns = append(returns, (curr-prev)/prev)
+		prev = curr
+	}
+	if len(returns) < minDataPoints-1 {
+		return 0
+	}
+
+	mean := 0.0
+	for _, r := range returns {
+		mean += r
+	}
+	mean /= float64(len(returns))
+
+	variance := 0.0
+	for _, r := range returns {
+		diff := r - mean
+		variance += diff * diff
+	}
+	if len(returns) > 1 {
+		variance /= float64(len(returns) - 1)
+	}
+	std := math.Sqrt(variance)
+	if std < 1e-10 {
+		return 0
+	}
+	return (mean / std) * math.Sqrt(252.0)
+}
+
+func fillTradeStats(metrics *backtest.Metrics, events []backtest.TradeEvent) {
+	if metrics == nil {
+		return
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].Timestamp == events[j].Timestamp {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].Timestamp < events[j].Timestamp
+	})
+
+	totalTrades := 0
+	winTrades := 0
+	lossTrades := 0
+	totalWinAmount := 0.0
+	totalLossAmount := 0.0
+	for _, evt := range events {
+		include := evt.LiquidationFlag || strings.HasPrefix(evt.Action, "close")
+		if evt.RealizedPnL != 0 {
+			include = true
+		}
+		if !include {
+			continue
+		}
+
+		totalTrades++
+		stats := metrics.SymbolStats[evt.Symbol]
+		stats.TotalTrades++
+		stats.TotalPnL += evt.RealizedPnL
+		if evt.RealizedPnL > 0 {
+			winTrades++
+			totalWinAmount += evt.RealizedPnL
+			stats.WinningTrades++
+		} else if evt.RealizedPnL < 0 {
+			lossTrades++
+			totalLossAmount += -evt.RealizedPnL
+			stats.LosingTrades++
+		}
+		metrics.SymbolStats[evt.Symbol] = stats
+	}
+
+	metrics.Trades = totalTrades
+	if totalTrades > 0 {
+		metrics.WinRate = (float64(winTrades) / float64(totalTrades)) * 100
+	}
+	if winTrades > 0 {
+		metrics.AvgWin = totalWinAmount / float64(winTrades)
+	}
+	if lossTrades > 0 {
+		metrics.AvgLoss = -(totalLossAmount / float64(lossTrades))
+	}
+	if totalLossAmount > 0 {
+		metrics.ProfitFactor = totalWinAmount / totalLossAmount
+	} else if totalWinAmount > 0 {
+		metrics.ProfitFactor = 100.0
+	}
+
+	bestSymbol := ""
+	bestPnL := math.Inf(-1)
+	worstSymbol := ""
+	worstPnL := math.Inf(1)
+	for symbol, stats := range metrics.SymbolStats {
+		if stats.TotalTrades > 0 {
+			if stats.TotalPnL > bestPnL {
+				bestPnL = stats.TotalPnL
+				bestSymbol = symbol
+			}
+			if stats.TotalPnL < worstPnL {
+				worstPnL = stats.TotalPnL
+				worstSymbol = symbol
+			}
+			stats.AvgPnL = stats.TotalPnL / float64(stats.TotalTrades)
+			stats.WinRate = (float64(stats.WinningTrades) / float64(stats.TotalTrades)) * 100
+			metrics.SymbolStats[symbol] = stats
+		}
+	}
+	if !math.IsInf(bestPnL, -1) {
+		metrics.BestSymbol = bestSymbol
+	}
+	if !math.IsInf(worstPnL, 1) {
+		metrics.WorstSymbol = worstSymbol
+	}
+}
+
 var errBacktestForbidden = errors.New("backtest run forbidden")
 
 func normalizeUserID(id string) string {
@@ -598,7 +1250,19 @@ func normalizeUserID(id string) string {
 	return id
 }
 
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 func (s *Server) ensureBacktestRunOwnership(runID, userID string) (*backtest.RunMetadata, error) {
+	return s.ensureBacktestRunAccess(runID, userID, false)
+}
+
+func (s *Server) ensureBacktestRunReadAccess(runID, userID string) (*backtest.RunMetadata, error) {
+	return s.ensureBacktestRunAccess(runID, userID, true)
+}
+
+func (s *Server) ensureBacktestRunAccess(runID, userID string, allowShowcaseRead bool) (*backtest.RunMetadata, error) {
 	if s.backtestManager == nil {
 		return nil, fmt.Errorf("backtest manager unavailable")
 	}
@@ -614,9 +1278,43 @@ func (s *Server) ensureBacktestRunOwnership(runID, userID string) (*backtest.Run
 		return meta, nil
 	}
 	if owner != userID {
+		if allowShowcaseRead && owner == s.backtestShowcaseOwnerUserID() {
+			return meta, nil
+		}
 		return nil, errBacktestForbidden
 	}
 	return meta, nil
+}
+
+func (s *Server) backtestShowcaseEmail() string {
+	return normalizeEmail(config.Get().BacktestShowcaseEmail)
+}
+
+func (s *Server) backtestShowcaseUserID() string {
+	return strings.TrimSpace(config.Get().BacktestShowcaseUserID)
+}
+
+func (s *Server) backtestShowcaseOwnerUserID() string {
+	showcaseEmail := s.backtestShowcaseEmail()
+	if showcaseEmail != "" {
+		u, err := s.store.User().GetByEmail(showcaseEmail)
+		if err == nil && u != nil {
+			return normalizeUserID(u.ID)
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.Errorf("Resolve showcase email %s failed: %v", showcaseEmail, err)
+		}
+		return ""
+	}
+	return normalizeUserID(s.backtestShowcaseUserID())
+}
+
+func (s *Server) canEditBacktestCorrection(email string) bool {
+	showcaseEmail := s.backtestShowcaseEmail()
+	if showcaseEmail == "" {
+		return false
+	}
+	return normalizeEmail(email) == showcaseEmail
 }
 
 func writeBacktestAccessError(c *gin.Context, err error) bool {

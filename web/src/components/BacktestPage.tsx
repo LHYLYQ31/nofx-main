@@ -50,6 +50,7 @@ import type {
   BacktestPositionStatus,
   BacktestEquityPoint,
   BacktestTradeEvent,
+  BacktestTradeCorrectionPatch,
   BacktestMetrics,
   BacktestKlinesResponse,
   DecisionRecord,
@@ -60,14 +61,28 @@ import type {
 // ============ Types ============
 type WizardStep = 1 | 2 | 3
 type ViewTab = 'overview' | 'chart' | 'trades' | 'decisions' | 'compare'
+type RunScope = 'mine' | 'showcase'
 
 const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
 const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT']
-
 // ============ Helper Functions ============
 const toLocalInput = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   return local.toISOString().slice(0, 16)
+}
+
+const parseOptionalFloat = (value: string): number | undefined => {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const parseOptionalInt = (value: string): number | undefined => {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const parsed = Number(trimmed)
+  return Number.isInteger(parsed) ? parsed : undefined
 }
 
 
@@ -83,6 +98,7 @@ function StatCard({
   color = '#EAECEF',
   metricKey,
   language = 'en',
+  highlight = false,
 }: {
   icon: typeof TrendingUp
   label: string
@@ -92,6 +108,7 @@ function StatCard({
   color?: string
   metricKey?: string
   language?: string
+  highlight?: boolean
 }) {
   const trendColors = {
     up: '#0ECB81',
@@ -102,7 +119,11 @@ function StatCard({
   return (
     <div
       className="p-4 rounded-xl"
-      style={{ background: 'rgba(30, 35, 41, 0.6)', border: '1px solid #2B3139' }}
+      style={{
+        background: highlight ? 'rgba(240, 185, 11, 0.12)' : 'rgba(30, 35, 41, 0.6)',
+        border: highlight ? '1px solid rgba(240, 185, 11, 0.75)' : '1px solid #2B3139',
+        boxShadow: highlight ? '0 0 0 1px rgba(240,185,11,0.25), 0 0 16px rgba(240,185,11,0.25)' : 'none',
+      }}
     >
       <div className="flex items-center gap-2 mb-2">
         <Icon className="w-4 h-4" style={{ color: '#F0B90B' }} />
@@ -169,7 +190,7 @@ function ProgressRing({ progress, size = 120 }: { progress: number; size?: numbe
           {progress.toFixed(0)}%
         </span>
         <span className="text-xs" style={{ color: '#848E9C' }}>
-          Complete
+          %
         </span>
       </div>
     </div>
@@ -280,11 +301,14 @@ function CandlestickChartComponent({
   runId,
   trades,
   language,
+  tr,
 }: {
   runId: string
   trades: BacktestTradeEvent[]
   language: string
+  tr: (key: string, params?: Record<string, string | number>) => string
 }) {
+  void language
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -393,16 +417,16 @@ function CandlestickChartComponent({
             if (isOpen) {
               // Opening position: show direction and price
               if (isLong) {
-                text = `▲ Long @${trade.price.toFixed(2)}`
+                text = `Long @${trade.price.toFixed(2)}`
                 color = '#0ECB81' // Green for long open
               } else {
-                text = `▼ Short @${trade.price.toFixed(2)}`
+                text = `Short @${trade.price.toFixed(2)}`
                 color = '#F6465D' // Red for short open
               }
             } else {
               // Closing position: show PnL
               const pnlStr = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`
-              text = `✕ ${pnlStr}`
+              text = `PnL ${pnlStr}`
               color = pnl >= 0 ? '#0ECB81' : '#F6465D' // Green for profit, red for loss
             }
 
@@ -424,7 +448,7 @@ function CandlestickChartComponent({
         setIsLoading(false)
       })
       .catch((err) => {
-        setError(err.message || 'Failed to load klines')
+        setError(err.message || tr('ui.failedToLoadKlines'))
         setIsLoading(false)
       })
 
@@ -447,7 +471,7 @@ function CandlestickChartComponent({
   if (symbols.length === 0) {
     return (
       <div className="py-12 text-center" style={{ color: '#5E6673' }}>
-        {language === 'zh' ? '没有交易记录' : 'No trades to display'}
+        {tr('ui.noTradesToDisplay')}
       </div>
     )
   }
@@ -459,7 +483,7 @@ function CandlestickChartComponent({
         <div className="flex items-center gap-2">
           <CandlestickIcon size={16} style={{ color: '#F0B90B' }} />
           <span className="text-sm" style={{ color: '#848E9C' }}>
-            {language === 'zh' ? '币种' : 'Symbol'}
+            {tr('ui.symbol')}
           </span>
           <select
             value={selectedSymbol}
@@ -478,7 +502,7 @@ function CandlestickChartComponent({
         <div className="flex items-center gap-2">
           <Clock size={14} style={{ color: '#848E9C' }} />
           <span className="text-sm" style={{ color: '#848E9C' }}>
-            {language === 'zh' ? '周期' : 'Interval'}
+            {tr('ui.interval')}
           </span>
           <div className="flex rounded overflow-hidden" style={{ border: '1px solid #2B3139' }}>
             {CHART_TIMEFRAMES.map((tf) => (
@@ -498,7 +522,7 @@ function CandlestickChartComponent({
         </div>
 
         <span className="text-xs" style={{ color: '#5E6673' }}>
-          ({symbolTrades.length} {language === 'zh' ? '笔交易' : 'trades'})
+          ({symbolTrades.length} {tr('ui.trades')})
         </span>
       </div>
 
@@ -511,7 +535,7 @@ function CandlestickChartComponent({
         {isLoading && (
           <div className="flex items-center justify-center h-[400px]" style={{ color: '#848E9C' }}>
             <RefreshCw className="animate-spin mr-2" size={16} />
-            {language === 'zh' ? '加载K线数据...' : 'Loading kline data...'}
+            {tr('ui.loadingKlineData')}
           </div>
         )}
         {error && (
@@ -526,27 +550,40 @@ function CandlestickChartComponent({
       <div className="flex items-center gap-4 text-xs" style={{ color: '#848E9C' }}>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#0ECB81' }} />
-          <span>{language === 'zh' ? '开仓/盈利' : 'Open/Profit'}</span>
+          <span>{tr('ui.openProfit')}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#F6465D' }} />
-          <span>{language === 'zh' ? '亏损平仓' : 'Loss Close'}</span>
+          <span>{tr('ui.lossClose')}</span>
         </div>
         <span style={{ color: '#5E6673' }}>|</span>
-        <span>▲ Long · ▼ Short · ✕ {language === 'zh' ? '平仓' : 'Close'}</span>
+        <span>{tr('ui.longShortClose')}</span>
       </div>
     </div>
   )
 }
 
 // Trade Timeline Component
-function TradeTimeline({ trades }: { trades: BacktestTradeEvent[] }) {
+function TradeTimeline({
+  trades,
+  language,
+  canEdit,
+  onEditTrade,
+  tr,
+}: {
+  trades: BacktestTradeEvent[]
+  language: string
+  canEdit: boolean
+  onEditTrade?: (trade: BacktestTradeEvent) => void
+  tr: (key: string, params?: Record<string, string | number>) => string
+}) {
+  void language
   const recentTrades = useMemo(() => [...trades].slice(-20).reverse(), [trades])
 
   if (recentTrades.length === 0) {
     return (
       <div className="py-12 text-center" style={{ color: '#5E6673' }}>
-        No trades yet
+        {tr('trades.empty')}
       </div>
     )
   }
@@ -584,6 +621,11 @@ function TradeTimeline({ trades }: { trades: BacktestTradeEvent[] }) {
                 <span className="font-mono font-bold text-sm" style={{ color: '#EAECEF' }}>
                   {trade.symbol.replace('USDT', '')}
                 </span>
+                {trade.id !== undefined && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#2B3139', color: '#848E9C' }}>
+                    #{trade.id}
+                  </span>
+                )}
                 <span
                   className="px-2 py-0.5 rounded text-xs font-medium"
                   style={{ background: `${iconColor}20`, color: iconColor }}
@@ -597,10 +639,10 @@ function TradeTimeline({ trades }: { trades: BacktestTradeEvent[] }) {
                 )}
               </div>
               <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                {new Date(trade.ts).toLocaleString()} · Qty: {trade.qty.toFixed(4)} · ${trade.price.toFixed(2)}
+                {new Date(trade.ts).toLocaleString()} | {tr('trades.headers.qty')}: {trade.qty.toFixed(4)} | ${trade.price.toFixed(2)}
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right space-y-1">
               <div
                 className="font-mono font-bold"
                 style={{ color: trade.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}
@@ -611,6 +653,15 @@ function TradeTimeline({ trades }: { trades: BacktestTradeEvent[] }) {
               <div className="text-xs" style={{ color: '#848E9C' }}>
                 USDT
               </div>
+              {canEdit && onEditTrade && trade.id !== undefined && (
+                <button
+                  onClick={() => onEditTrade(trade)}
+                  className="text-[11px] px-2 py-0.5 rounded transition-colors"
+                  style={{ background: '#1E2329', color: '#F0B90B', border: '1px solid #2B3139' }}
+                >
+                  {tr('ui.edit')}
+                </button>
+              )}
             </div>
           </motion.div>
         )
@@ -623,10 +674,13 @@ function TradeTimeline({ trades }: { trades: BacktestTradeEvent[] }) {
 function PositionsDisplay({
   positions,
   language,
+  tr,
 }: {
   positions: BacktestPositionStatus[]
   language: string
+  tr: (key: string, params?: Record<string, string | number>) => string
 }) {
+  void language
   if (!positions || positions.length === 0) {
     return null
   }
@@ -643,7 +697,7 @@ function PositionsDisplay({
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4" style={{ color: '#F0B90B' }} />
           <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>
-            {language === 'zh' ? '当前持仓' : 'Active Positions'}
+            {tr('ui.activePositions')}
           </span>
           <span
             className="px-1.5 py-0.5 rounded text-xs"
@@ -654,13 +708,13 @@ function PositionsDisplay({
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span style={{ color: '#848E9C' }}>
-            {language === 'zh' ? '保证金' : 'Margin'}: ${totalMargin.toFixed(2)}
+            {tr('ui.margin')}: ${totalMargin.toFixed(2)}
           </span>
           <span
             className="font-medium"
             style={{ color: totalUnrealizedPnL >= 0 ? '#0ECB81' : '#F6465D' }}
           >
-            {language === 'zh' ? '浮盈' : 'Unrealized'}: {totalUnrealizedPnL >= 0 ? '+' : ''}
+            {tr('ui.unrealized')}: {totalUnrealizedPnL >= 0 ? '+' : ''}
             ${totalUnrealizedPnL.toFixed(2)}
           </span>
         </div>
@@ -706,8 +760,7 @@ function PositionsDisplay({
                     </span>
                   </div>
                   <div className="text-[10px]" style={{ color: '#5E6673' }}>
-                    {language === 'zh' ? '数量' : 'Qty'}: {pos.quantity.toFixed(4)} ·{' '}
-                    {language === 'zh' ? '保证金' : 'Margin'}: ${pos.margin_used.toFixed(2)}
+                    {tr('ui.qty')}: {pos.quantity.toFixed(4)} | {tr('ui.margin')}: ${pos.margin_used.toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -715,10 +768,10 @@ function PositionsDisplay({
               <div className="text-right">
                 <div className="flex items-center gap-2 text-xs">
                   <span style={{ color: '#848E9C' }}>
-                    {language === 'zh' ? '开仓' : 'Entry'}: ${pos.entry_price.toFixed(2)}
+                    {tr('ui.entry')}: ${pos.entry_price.toFixed(2)}
                   </span>
                   <span style={{ color: '#EAECEF' }}>
-                    {language === 'zh' ? '现价' : 'Mark'}: ${pos.mark_price.toFixed(2)}
+                    {tr('ui.mark')}: ${pos.mark_price.toFixed(2)}
                   </span>
                 </div>
                 <div className="flex items-center justify-end gap-1.5 mt-0.5">
@@ -753,10 +806,25 @@ export function BacktestPage() {
   const now = new Date()
   const [wizardStep, setWizardStep] = useState<WizardStep>(1)
   const [viewTab, setViewTab] = useState<ViewTab>('overview')
+  const [runScope, setRunScope] = useState<RunScope>('mine')
   const [selectedRunId, setSelectedRunId] = useState<string>()
   const [compareRunIds, setCompareRunIds] = useState<string[]>([])
   const [isStarting, setIsStarting] = useState(false)
+  const [isCorrectionOpen, setIsCorrectionOpen] = useState(false)
+  const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false)
+  const [flashStats, setFlashStats] = useState<Record<string, boolean>>({})
+  const [correctionForm, setCorrectionForm] = useState({
+    reason: '',
+    tradeId: '',
+    tradeAction: '',
+    tradeSide: '',
+    tradeQty: '',
+    tradePrice: '',
+    tradeRealizedPnl: '',
+    tradeNote: '',
+  })
   const [toast, setToast] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(null)
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Form state
   const [formState, setFormState] = useState({
@@ -784,33 +852,37 @@ export function BacktestPage() {
   })
 
   // Data fetching
-  const { data: runsResp, mutate: refreshRuns } = useSWR(['backtest-runs'], () =>
+  const { data: myRunsResp, mutate: refreshMyRuns } = useSWR(['backtest-runs'], () =>
     api.getBacktestRuns({ limit: 100, offset: 0 })
     , { refreshInterval: 5000 })
-  const runs = runsResp?.items ?? []
+  const { data: showcaseRunsResp, mutate: refreshShowcaseRuns } = useSWR(['backtest-showcase-runs'], () =>
+    api.getBacktestShowcaseRuns({ limit: 100, offset: 0 })
+    , { refreshInterval: 10000 })
+  const runs = runScope === 'showcase' ? (showcaseRunsResp?.items ?? []) : (myRunsResp?.items ?? [])
+  const isShowcaseMode = runScope === 'showcase'
 
   const { data: aiModels } = useSWR<AIModel[]>('ai-models', api.getModelConfigs, { refreshInterval: 30000 })
   const { data: strategies } = useSWR<Strategy[]>('available-strategies', api.getAvailableStrategies, { refreshInterval: 30000 })
 
-  const { data: status } = useSWR<BacktestStatusPayload>(
+  const { data: status, mutate: refreshStatus } = useSWR<BacktestStatusPayload>(
     selectedRunId ? ['bt-status', selectedRunId] : null,
     () => api.getBacktestStatus(selectedRunId!),
     { refreshInterval: 2000 }
   )
 
-  const { data: equity } = useSWR<BacktestEquityPoint[]>(
+  const { data: equity, mutate: refreshEquity } = useSWR<BacktestEquityPoint[]>(
     selectedRunId ? ['bt-equity', selectedRunId] : null,
     () => api.getBacktestEquity(selectedRunId!, '1m', 2000),
     { refreshInterval: 5000 }
   )
 
-  const { data: trades } = useSWR<BacktestTradeEvent[]>(
+  const { data: trades, mutate: refreshTrades } = useSWR<BacktestTradeEvent[]>(
     selectedRunId ? ['bt-trades', selectedRunId] : null,
     () => api.getBacktestTrades(selectedRunId!, 500),
     { refreshInterval: 5000 }
   )
 
-  const { data: metrics } = useSWR<BacktestMetrics>(
+  const { data: metrics, mutate: refreshMetrics } = useSWR<BacktestMetrics>(
     selectedRunId ? ['bt-metrics', selectedRunId] : null,
     () => api.getBacktestMetrics(selectedRunId!),
     { refreshInterval: 10000 }
@@ -821,6 +893,12 @@ export function BacktestPage() {
     () => api.getBacktestDecisions(selectedRunId!, 30),
     { refreshInterval: 5000 }
   )
+  const { data: correctionPermission } = useSWR(
+    'backtest-correction-permission',
+    api.getBacktestCorrectionPermission,
+    { refreshInterval: 30000 }
+  )
+  const canEditBacktest = correctionPermission?.can_edit === true
 
   const selectedRun = runs.find((r) => r.run_id === selectedRunId)
   const selectedModel = aiModels?.find((m) => m.id === formState.aiModelId)
@@ -896,12 +974,16 @@ export function BacktestPage() {
     }
   }, [aiModels, formState.aiModelId])
 
-  // Auto-select first run
+  // Auto-select first run in current scope
   useEffect(() => {
-    if (!selectedRunId && runs.length > 0) {
+    if (runs.length === 0) {
+      setSelectedRunId(undefined)
+      return
+    }
+    if (!selectedRunId || !runs.some((r) => r.run_id === selectedRunId)) {
       setSelectedRunId(runs[0].run_id)
     }
-  }, [runs, selectedRunId])
+  }, [runs, selectedRunId, runScope])
 
   // Handlers
   const handleFormChange = (key: string, value: string | number | boolean | string[]) => {
@@ -955,8 +1037,9 @@ export function BacktestPage() {
 
       setToast({ text: tr('toasts.startSuccess', { id: payload.run_id }), tone: 'success' })
       setSelectedRunId(payload.run_id)
+      setRunScope('mine')
       setWizardStep(1)
-      await refreshRuns()
+      await refreshMyRuns()
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : tr('toasts.startFailed')
       setToast({ text: errMsg, tone: 'error' })
@@ -966,13 +1049,13 @@ export function BacktestPage() {
   }
 
   const handleControl = async (action: 'pause' | 'resume' | 'stop') => {
-    if (!selectedRunId) return
+    if (!selectedRunId || isShowcaseMode) return
     try {
       if (action === 'pause') await api.pauseBacktest(selectedRunId)
       if (action === 'resume') await api.resumeBacktest(selectedRunId)
       if (action === 'stop') await api.stopBacktest(selectedRunId)
       setToast({ text: tr('toasts.actionSuccess', { action, id: selectedRunId }), tone: 'success' })
-      await refreshRuns()
+      await refreshMyRuns()
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : tr('toasts.actionFailed')
       setToast({ text: errMsg, tone: 'error' })
@@ -980,18 +1063,18 @@ export function BacktestPage() {
   }
 
   const handleDelete = async () => {
-    if (!selectedRunId) return
+    if (!selectedRunId || isShowcaseMode) return
     const confirmed = await confirmToast(tr('toasts.confirmDelete', { id: selectedRunId }), {
-      title: language === 'zh' ? '确认删除' : 'Confirm Delete',
-      okText: language === 'zh' ? '删除' : 'Delete',
-      cancelText: language === 'zh' ? '取消' : 'Cancel',
+      title: tr('ui.confirmDeleteTitle'),
+      okText: tr('ui.delete'),
+      cancelText: tr('ui.cancel'),
     })
     if (!confirmed) return
     try {
       await api.deleteBacktestRun(selectedRunId)
       setToast({ text: tr('toasts.deleteSuccess'), tone: 'success' })
       setSelectedRunId(undefined)
-      await refreshRuns()
+      await refreshMyRuns()
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : tr('toasts.deleteFailed')
       setToast({ text: errMsg, tone: 'error' })
@@ -999,7 +1082,7 @@ export function BacktestPage() {
   }
 
   const handleExport = async () => {
-    if (!selectedRunId) return
+    if (!selectedRunId || isShowcaseMode) return
     try {
       const blob = await api.exportBacktest(selectedRunId)
       const url = URL.createObjectURL(blob)
@@ -1022,10 +1105,10 @@ export function BacktestPage() {
   }
 
   const quickRanges = [
-    { label: language === 'zh' ? '24小时' : '24h', hours: 24 },
-    { label: language === 'zh' ? '3天' : '3d', hours: 72 },
-    { label: language === 'zh' ? '7天' : '7d', hours: 168 },
-    { label: language === 'zh' ? '30天' : '30d', hours: 720 },
+    { label: tr('quickRanges.h24'), hours: 24 },
+    { label: tr('quickRanges.d3'), hours: 72 },
+    { label: tr('quickRanges.d7'), hours: 168 },
+    { label: tr('ui.quick30d'), hours: 720 },
   ]
 
   const applyQuickRange = (hours: number) => {
@@ -1034,6 +1117,115 @@ export function BacktestPage() {
     handleFormChange('start', toLocalInput(startDate))
     handleFormChange('end', toLocalInput(endDate))
   }
+
+  const openTradeCorrectionEditor = (trade: BacktestTradeEvent) => {
+    if (trade.id === undefined) {
+      setToast({
+        text: tr('toasts.tradeIdMissing'),
+        tone: 'error',
+      })
+      return
+    }
+    setCorrectionForm({
+      reason: '',
+      tradeId: String(trade.id),
+      tradeAction: trade.action || '',
+      tradeSide: trade.side || '',
+      tradeQty: String(trade.qty ?? ''),
+      tradePrice: String(trade.price ?? ''),
+      tradeRealizedPnl: String(trade.realized_pnl ?? ''),
+      tradeNote: trade.note || '',
+    })
+    setIsCorrectionOpen(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const submitCorrection = async () => {
+    if (!selectedRunId) return
+    const tradeId = parseOptionalInt(correctionForm.tradeId)
+    if (tradeId === undefined) {
+      setToast({ text: tr('toasts.editOneField'), tone: 'error' })
+      return
+    }
+    const tradePatch: BacktestTradeCorrectionPatch = { trade_id: tradeId }
+    const tradeAction = correctionForm.tradeAction.trim()
+    const tradeSide = correctionForm.tradeSide.trim()
+    const tradeQty = parseOptionalFloat(correctionForm.tradeQty)
+    const tradePrice = parseOptionalFloat(correctionForm.tradePrice)
+    const tradeRealizedPnl = parseOptionalFloat(correctionForm.tradeRealizedPnl)
+    const tradeNote = correctionForm.tradeNote.trim()
+    if (tradeAction !== '') tradePatch.action = tradeAction
+    if (tradeSide !== '') tradePatch.side = tradeSide
+    if (tradeQty !== undefined) tradePatch.qty = tradeQty
+    if (tradePrice !== undefined) tradePatch.price = tradePrice
+    if (tradeRealizedPnl !== undefined) tradePatch.realized_pnl = tradeRealizedPnl
+    if (tradeNote !== '') tradePatch.note = tradeNote
+
+    if (Object.keys(tradePatch).length <= 1) {
+      setToast({ text: tr('toasts.editOneField'), tone: 'error' })
+      return
+    }
+
+    try {
+      setIsSubmittingCorrection(true)
+      const result = await api.correctBacktestResult({
+        run_id: selectedRunId,
+        reason: correctionForm.reason.trim() || undefined,
+        trade_updates: [tradePatch],
+      })
+      const changed: string[] = []
+      const currentEquity = status?.equity ?? 0
+      const nextEquity = result.run?.summary?.equity_last ?? currentEquity
+      if (Math.abs(nextEquity - currentEquity) > 1e-9) changed.push('equity')
+
+      const currentReturn = metrics?.total_return_pct ?? 0
+      const nextReturn = result.metrics?.total_return_pct ?? currentReturn
+      if (Math.abs(nextReturn - currentReturn) > 1e-9) changed.push('return')
+
+      const currentMaxDD = metrics?.max_drawdown_pct ?? 0
+      const nextMaxDD = result.metrics?.max_drawdown_pct ?? currentMaxDD
+      if (Math.abs(nextMaxDD - currentMaxDD) > 1e-9) changed.push('maxdd')
+
+      const currentSharpe = metrics?.sharpe_ratio ?? 0
+      const nextSharpe = result.metrics?.sharpe_ratio ?? currentSharpe
+      if (Math.abs(nextSharpe - currentSharpe) > 1e-9) changed.push('sharpe')
+
+      if (changed.length > 0) {
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+        const flags: Record<string, boolean> = {}
+        for (const k of changed) flags[k] = true
+        setFlashStats(flags)
+        flashTimerRef.current = setTimeout(() => setFlashStats({}), 2000)
+      }
+      setToast({ text: tr('toasts.correctionSuccess'), tone: 'success' })
+      setIsCorrectionOpen(false)
+      await Promise.all([
+        refreshMyRuns(),
+        refreshShowcaseRuns(),
+        refreshStatus(),
+        refreshEquity(),
+        refreshTrades(),
+        refreshMetrics(),
+      ])
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : tr('toasts.correctionFailed')
+      setToast({ text: errMsg, tone: 'error' })
+    } finally {
+      setIsSubmittingCorrection(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (runScope === 'showcase') {
+      void refreshShowcaseRuns()
+    }
+  }, [runScope, refreshShowcaseRuns])
 
   const getStateColor = (state: string) => {
     switch (state) {
@@ -1112,7 +1304,7 @@ export function BacktestPage() {
             style={{ background: '#F0B90B', color: '#0B0E11' }}
           >
             <Play className="w-4 h-4" />
-            {language === 'zh' ? '新建回测' : 'New Backtest'}
+            {tr('ui.newBacktest')}
           </button>
         </div>
 
@@ -1144,16 +1336,10 @@ export function BacktestPage() {
                 ))}
                 <span className="ml-2 text-xs" style={{ color: '#848E9C' }}>
                   {wizardStep === 1
-                    ? language === 'zh'
-                      ? '选择模型'
-                      : 'Select Model'
+                    ? tr('ui.wizardStep1')
                     : wizardStep === 2
-                      ? language === 'zh'
-                        ? '配置参数'
-                        : 'Configure'
-                      : language === 'zh'
-                        ? '确认启动'
-                        : 'Confirm'}
+                      ? tr('ui.wizardStep2')
+                      : tr('ui.wizardStep3')}
                 </span>
               </div>
 
@@ -1181,7 +1367,7 @@ export function BacktestPage() {
                           <option value="">{tr('form.selectAiModel')}</option>
                           {aiModels?.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.name} ({m.provider}) {!m.enabled && '⚠️'}
+                              {m.name} ({m.provider}) {!m.enabled && '[!]'}
                             </option>
                           ))}
                         </select>
@@ -1203,7 +1389,7 @@ export function BacktestPage() {
                       {/* Strategy Selection (Optional) */}
                       <div>
                         <label className="block text-xs mb-2" style={{ color: '#848E9C' }}>
-                          {language === 'zh' ? '策略配置（可选）' : 'Strategy (Optional)'}
+                          {tr('ui.strategyOptional')}
                         </label>
                         <select
                           className="w-full p-3 rounded-lg text-sm"
@@ -1211,10 +1397,10 @@ export function BacktestPage() {
                           value={formState.strategyId}
                           onChange={(e) => handleFormChange('strategyId', e.target.value)}
                         >
-                          <option value="">{language === 'zh' ? '不使用保存的策略' : 'No saved strategy'}</option>
+                          <option value="">{tr('ui.manualNoStrategy')}</option>
                           {strategies?.map((s) => (
                             <option key={s.id} value={s.id}>
-                              {s.name} {s.is_active && '✓'} {s.is_default && '⭐'}
+                              {s.name} {s.is_active && tr('ui.activeTag')} {s.is_default && tr('ui.defaultTag')}
                             </option>
                           ))}
                         </select>
@@ -1222,7 +1408,7 @@ export function BacktestPage() {
                           <div className="mt-2 p-2 rounded" style={{ background: 'rgba(240,185,11,0.1)', border: '1px solid rgba(240,185,11,0.2)' }}>
                             <div className="flex items-center gap-2 text-xs">
                               <span style={{ color: '#F0B90B' }}>
-                                {language === 'zh' ? '币种来源:' : 'Coin Source:'}
+                                {tr('ui.coinSource')}
                               </span>
                               <span className="font-medium" style={{ color: '#EAECEF' }}>
                                 {coinSourceDescription.type}
@@ -1232,9 +1418,7 @@ export function BacktestPage() {
                             </div>
                             {strategyHasDynamicCoins && (
                               <div className="text-xs mt-1" style={{ color: '#F0B90B' }}>
-                                {language === 'zh'
-                                  ? '⚡ 清空下方币种输入框即可使用策略的动态币种'
-                                  : '⚡ Clear the symbols field below to use strategy\'s dynamic coins'}
+                                {tr('ui.strategyUsesDynamicCoins')}
                               </div>
                             )}
                           </div>
@@ -1246,7 +1430,7 @@ export function BacktestPage() {
                           {tr('form.symbolsLabel')}
                           {strategyHasDynamicCoins && (
                             <span className="ml-2" style={{ color: '#5E6673' }}>
-                              ({language === 'zh' ? '可选 - 策略已配置币种来源' : 'Optional - strategy has coin source'})
+                              {tr('ui.dynamicCoinHint')}
                             </span>
                           )}
                         </label>
@@ -1290,8 +1474,8 @@ export function BacktestPage() {
                             onChange={(e) => handleFormChange('symbols', e.target.value)}
                             rows={2}
                             placeholder={strategyHasDynamicCoins
-                              ? (language === 'zh' ? '留空将使用策略配置的币种来源' : 'Leave empty to use strategy coin source')
-                              : ''
+                              ? tr('ui.dynamicCoinPlaceholder')
+                              : 'BTCUSDT,ETHUSDT,SOLUSDT'
                             }
                           />
                           {strategyHasDynamicCoins && formState.symbols && (
@@ -1301,7 +1485,7 @@ export function BacktestPage() {
                               className="absolute top-2 right-2 px-2 py-1 rounded text-xs"
                               style={{ background: '#F0B90B', color: '#0B0E11' }}
                             >
-                              {language === 'zh' ? '清空使用策略币种' : 'Clear to use strategy'}
+                              {tr('ui.clear')}
                             </button>
                           )}
                         </div>
@@ -1314,7 +1498,7 @@ export function BacktestPage() {
                         className="w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                         style={{ background: '#F0B90B', color: '#0B0E11' }}
                       >
-                        {language === 'zh' ? '下一步' : 'Next'}
+                        {tr('ui.next')}
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     </motion.div>
@@ -1366,7 +1550,7 @@ export function BacktestPage() {
 
                       <div>
                         <label className="block text-xs mb-2" style={{ color: '#848E9C' }}>
-                          {language === 'zh' ? '时间周期' : 'Timeframes'}
+                          {tr('ui.timeframes')}
                         </label>
                         <div className="flex flex-wrap gap-1">
                           {TIMEFRAME_OPTIONS.map((tf) => {
@@ -1435,7 +1619,7 @@ export function BacktestPage() {
                           style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                         >
                           <ChevronLeft className="w-4 h-4" />
-                          {language === 'zh' ? '上一步' : 'Back'}
+                          {tr('ui.back')}
                         </button>
                         <button
                           type="button"
@@ -1443,7 +1627,7 @@ export function BacktestPage() {
                           className="flex-1 py-2 rounded-lg font-medium flex items-center justify-center gap-2"
                           style={{ background: '#F0B90B', color: '#0B0E11' }}
                         >
-                          {language === 'zh' ? '下一步' : 'Next'}
+                          {tr('ui.next')}
                           <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
@@ -1527,7 +1711,7 @@ export function BacktestPage() {
 
                       <div>
                         <label className="block text-xs mb-1" style={{ color: '#848E9C' }}>
-                          {language === 'zh' ? '策略风格' : 'Strategy Style'}
+                          {tr('ui.promptPreset')}
                         </label>
                         <div className="flex flex-wrap gap-1">
                           {['baseline', 'aggressive', 'conservative', 'scalping'].map((p) => (
@@ -1577,7 +1761,7 @@ export function BacktestPage() {
                           style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                         >
                           <ChevronLeft className="w-4 h-4" />
-                          {language === 'zh' ? '上一步' : 'Back'}
+                          {tr('ui.back')}
                         </button>
                         <button
                           type="submit"
@@ -1607,14 +1791,40 @@ export function BacktestPage() {
                   {tr('runList.title')}
                 </h3>
                 <span className="text-xs" style={{ color: '#848E9C' }}>
-                  {runs.length} {language === 'zh' ? '条' : 'runs'}
+                  {runs.length} {tr('ui.runs')}
                 </span>
               </div>
 
+              <div className="mb-3 flex items-center rounded-lg p-1 w-fit" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+                <button
+                  type="button"
+                  onClick={() => setRunScope('mine')}
+                  className="px-2 py-1 text-xs rounded transition-all"
+                  style={{
+                    background: runScope === 'mine' ? '#F0B90B' : 'transparent',
+                    color: runScope === 'mine' ? '#0B0E11' : '#848E9C',
+                  }}
+                >
+                  {tr('ui.scopeMine')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRunScope('showcase')}
+                  className="px-2 py-1 text-xs rounded transition-all"
+                  style={{
+                    background: runScope === 'showcase' ? '#F0B90B' : 'transparent',
+                    color: runScope === 'showcase' ? '#0B0E11' : '#848E9C',
+                  }}
+                >
+                  {tr('ui.scopeShowcase')}
+                </button>
+              </div>
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {runs.length === 0 ? (
                   <div className="py-8 text-center text-sm" style={{ color: '#5E6673' }}>
-                    {tr('emptyStates.noRuns')}
+                    {runScope === 'showcase'
+                      ? tr('ui.noShowcaseRuns')
+                      : tr('emptyStates.noRuns')}
                   </div>
                 ) : (
                   runs.map((run) => (
@@ -1641,7 +1851,7 @@ export function BacktestPage() {
                       </div>
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-xs" style={{ color: '#848E9C' }}>
-                          {run.summary.progress_pct.toFixed(0)}% · ${run.summary.equity_last.toFixed(0)}
+                          {run.summary.progress_pct.toFixed(0)}% | ${run.summary.equity_last.toFixed(0)}
                         </span>
                         <button
                           onClick={(e) => {
@@ -1654,7 +1864,7 @@ export function BacktestPage() {
                               ? 'rgba(240,185,11,0.2)'
                               : 'transparent',
                           }}
-                          title={language === 'zh' ? '添加到对比' : 'Add to compare'}
+                          title={tr('ui.toggleCompare')}
                         >
                           <Eye
                             className="w-3 h-3"
@@ -1705,7 +1915,7 @@ export function BacktestPage() {
                           </span>
                           {selectedRun?.summary.decision_tf && (
                             <span className="text-xs" style={{ color: '#848E9C' }}>
-                              {selectedRun.summary.decision_tf} · {selectedRun.summary.symbol_count} symbols
+                              {selectedRun.summary.decision_tf} | {selectedRun.summary.symbol_count} {tr('ui.symbols')}
                             </span>
                           )}
                         </div>
@@ -1713,7 +1923,7 @@ export function BacktestPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {(status?.state === 'running' || selectedRun?.state === 'running') && (
+                      {!isShowcaseMode && (status?.state === 'running' || selectedRun?.state === 'running') && (
                         <>
                           <button
                             onClick={() => handleControl('pause')}
@@ -1733,7 +1943,7 @@ export function BacktestPage() {
                           </button>
                         </>
                       )}
-                      {status?.state === 'paused' && (
+                      {!isShowcaseMode && status?.state === 'paused' && (
                         <button
                           onClick={() => handleControl('resume')}
                           className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
@@ -1743,22 +1953,31 @@ export function BacktestPage() {
                           <Play className="w-4 h-4" style={{ color: '#0ECB81' }} />
                         </button>
                       )}
-                      <button
-                        onClick={handleExport}
-                        className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
-                        style={{ border: '1px solid #2B3139' }}
-                        title={tr('detail.exportLabel')}
-                      >
-                        <Download className="w-4 h-4" style={{ color: '#EAECEF' }} />
-                      </button>
-                      <button
-                        onClick={handleDelete}
-                        className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
-                        style={{ border: '1px solid #2B3139' }}
-                        title={tr('detail.deleteLabel')}
-                      >
-                        <Trash2 className="w-4 h-4" style={{ color: '#F6465D' }} />
-                      </button>
+                      {!isShowcaseMode && (
+                        <>
+                          <button
+                            onClick={handleExport}
+                            className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
+                            style={{ border: '1px solid #2B3139' }}
+                            title={tr('detail.exportLabel')}
+                          >
+                            <Download className="w-4 h-4" style={{ color: '#EAECEF' }} />
+                          </button>
+                          <button
+                            onClick={handleDelete}
+                            className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
+                            style={{ border: '1px solid #2B3139' }}
+                            title={tr('detail.deleteLabel')}
+                          >
+                            <Trash2 className="w-4 h-4" style={{ color: '#F6465D' }} />
+                          </button>
+                        </>
+                      )}
+                      {isShowcaseMode && (
+                        <span className="text-xs px-2 py-1 rounded" style={{ color: '#F0B90B', background: 'rgba(240,185,11,0.1)', border: '1px solid rgba(240,185,11,0.25)' }}>
+                          {tr('ui.showcaseReadonly')}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -1778,42 +1997,166 @@ export function BacktestPage() {
 
                   {/* Real-time Positions Display */}
                   {status?.positions && status.positions.length > 0 && (
-                    <PositionsDisplay positions={status.positions} language={language} />
+                    <PositionsDisplay positions={status.positions} language={language} tr={tr} />
                   )}
                 </div>
+
+                {isCorrectionOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                      className="absolute inset-0"
+                      style={{ background: 'rgba(11,14,17,0.7)' }}
+                      onClick={() => setIsCorrectionOpen(false)}
+                    />
+                    <div
+                      className="relative w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-xl p-4 space-y-3"
+                      style={{ background: '#11151B', border: '1px solid #2B3139' }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold" style={{ color: '#EAECEF' }}>
+                          {tr('ui.editTradeData')}
+                        </h3>
+                        <button
+                          onClick={() => setIsCorrectionOpen(false)}
+                          className="text-xs px-2 py-1 rounded"
+                          style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#848E9C' }}
+                        >
+                          {tr('ui.close')}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeId')} (
+                            <code>trade_updates[].trade_id</code>)</label>
+                          <input
+                            value={correctionForm.tradeId}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeId: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            placeholder={tr('ui.required')}
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeAction')} (
+                            <code>trade_updates[].action</code>)</label>
+                          <input
+                            value={correctionForm.tradeAction}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeAction: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            placeholder={tr('ui.tradeActionPlaceholder')}
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeSide')} (
+                            <code>trade_updates[].side</code>)</label>
+                          <input
+                            value={correctionForm.tradeSide}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeSide: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            placeholder={tr('ui.tradeSidePlaceholder')}
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeQty')} (
+                            <code>trade_updates[].qty</code>)</label>
+                          <input
+                            value={correctionForm.tradeQty}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeQty: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradePrice')} (
+                            <code>trade_updates[].price</code>)</label>
+                          <input
+                            value={correctionForm.tradePrice}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradePrice: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeRealizedPnl')} (
+                            <code>trade_updates[].realized_pnl</code>)</label>
+                          <input
+                            value={correctionForm.tradeRealizedPnl}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeRealizedPnl: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeNote')} (
+                            <code>trade_updates[].note</code>)</label>
+                          <input
+                            value={correctionForm.tradeNote}
+                            onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeNote: e.target.value }))}
+                            className="w-full p-2 rounded-lg text-sm"
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          />
+                        </div>
+                      </div>
+                      <textarea
+                        value={correctionForm.reason}
+                        onChange={(e) => setCorrectionForm((p) => ({ ...p, reason: e.target.value }))}
+                        placeholder={tr('ui.correctionReason')}
+                        rows={2}
+                        className="w-full p-2 rounded-lg text-sm"
+                        style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={submitCorrection}
+                          disabled={isSubmittingCorrection}
+                          className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
+                          style={{ background: '#F0B90B', color: '#0B0E11' }}
+                        >
+                          {isSubmittingCorrection ? tr('ui.submitting') : tr('ui.submitCorrection')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <StatCard
                     icon={Target}
-                    label={language === 'zh' ? '当前净值' : 'Equity'}
+                    label={tr('ui.equity')}
                     value={(status?.equity ?? 0).toFixed(2)}
                     suffix="USDT"
                     language={language}
+                    highlight={flashStats.equity === true}
                   />
                   <StatCard
                     icon={TrendingUp}
-                    label={language === 'zh' ? '总收益率' : 'Return'}
+                    label={tr('ui.return')}
                     value={`${(metrics?.total_return_pct ?? 0).toFixed(2)}%`}
                     trend={(metrics?.total_return_pct ?? 0) >= 0 ? 'up' : 'down'}
                     color={(metrics?.total_return_pct ?? 0) >= 0 ? '#0ECB81' : '#F6465D'}
                     metricKey="total_return"
                     language={language}
+                    highlight={flashStats.return === true}
                   />
                   <StatCard
                     icon={AlertTriangle}
-                    label={language === 'zh' ? '最大回撤' : 'Max DD'}
+                    label={tr('ui.maxDd')}
                     value={`${(metrics?.max_drawdown_pct ?? 0).toFixed(2)}%`}
                     color="#F6465D"
                     metricKey="max_drawdown"
                     language={language}
+                    highlight={flashStats.maxdd === true}
                   />
                   <StatCard
                     icon={BarChart3}
-                    label={language === 'zh' ? '夏普比率' : 'Sharpe'}
+                    label={tr('ui.sharpe')}
                     value={(metrics?.sharpe_ratio ?? 0).toFixed(2)}
                     metricKey="sharpe_ratio"
                     language={language}
+                    highlight={flashStats.sharpe === true}
                   />
                 </div>
 
@@ -1828,20 +2171,12 @@ export function BacktestPage() {
                         style={{ color: viewTab === tab ? '#F0B90B' : '#848E9C' }}
                       >
                         {tab === 'overview'
-                          ? language === 'zh'
-                            ? '概览'
-                            : 'Overview'
+                          ? tr('ui.tabOverview')
                           : tab === 'chart'
-                            ? language === 'zh'
-                              ? '图表'
-                              : 'Chart'
+                            ? tr('ui.tabChart')
                             : tab === 'trades'
-                              ? language === 'zh'
-                                ? '交易'
-                                : 'Trades'
-                              : language === 'zh'
-                                ? 'AI决策'
-                                : 'Decisions'}
+                              ? tr('ui.tabTrades')
+                              : tr('ui.tabDecisions')}
                         {viewTab === tab && (
                           <motion.div
                             layoutId="tab-indicator"
@@ -1874,7 +2209,7 @@ export function BacktestPage() {
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                               <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
                                 <div className="flex items-center gap-1 text-xs" style={{ color: '#848E9C' }}>
-                                  {language === 'zh' ? '胜率' : 'Win Rate'}
+                                  {tr('ui.winRate')}
                                   <MetricTooltip metricKey="win_rate" language={language} size={11} />
                                 </div>
                                 <div className="text-lg font-bold" style={{ color: '#EAECEF' }}>
@@ -1883,7 +2218,7 @@ export function BacktestPage() {
                               </div>
                               <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
                                 <div className="flex items-center gap-1 text-xs" style={{ color: '#848E9C' }}>
-                                  {language === 'zh' ? '盈亏因子' : 'Profit Factor'}
+                                  {tr('ui.profitFactor')}
                                   <MetricTooltip metricKey="profit_factor" language={language} size={11} />
                                 </div>
                                 <div className="text-lg font-bold" style={{ color: '#EAECEF' }}>
@@ -1892,7 +2227,7 @@ export function BacktestPage() {
                               </div>
                               <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
                                 <div className="text-xs" style={{ color: '#848E9C' }}>
-                                  {language === 'zh' ? '总交易数' : 'Total Trades'}
+                                  {tr('ui.totalTrades')}
                                 </div>
                                 <div className="text-lg font-bold" style={{ color: '#EAECEF' }}>
                                   {metrics.trades ?? 0}
@@ -1900,7 +2235,7 @@ export function BacktestPage() {
                               </div>
                               <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
                                 <div className="text-xs" style={{ color: '#848E9C' }}>
-                                  {language === 'zh' ? '最佳币种' : 'Best Symbol'}
+                                  {tr('ui.bestSymbol')}
                                 </div>
                                 <div className="text-lg font-bold" style={{ color: '#0ECB81' }}>
                                   {metrics.best_symbol?.replace('USDT', '') || '-'}
@@ -1922,7 +2257,7 @@ export function BacktestPage() {
                           {/* Equity Chart */}
                           <div>
                             <h4 className="text-sm font-medium mb-3" style={{ color: '#EAECEF' }}>
-                              {language === 'zh' ? '资金曲线' : 'Equity Curve'}
+                              {tr('charts.equityTitle')}
                             </h4>
                             {equity && equity.length > 0 ? (
                               <BacktestChart equity={equity} trades={trades ?? []} />
@@ -1937,12 +2272,13 @@ export function BacktestPage() {
                           {selectedRunId && trades && trades.length > 0 && (
                             <div>
                               <h4 className="text-sm font-medium mb-3" style={{ color: '#EAECEF' }}>
-                                {language === 'zh' ? 'K线图 & 交易标记' : 'Candlestick & Trade Markers'}
+                                {tr('ui.candlestickTradeMarkers')}
                               </h4>
                               <CandlestickChartComponent
                                 runId={selectedRunId}
                                 trades={trades}
                                 language={language}
+                                tr={tr}
                               />
                             </div>
                           )}
@@ -1956,7 +2292,13 @@ export function BacktestPage() {
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
                         >
-                          <TradeTimeline trades={trades ?? []} />
+                          <TradeTimeline
+                            trades={trades ?? []}
+                            language={language}
+                            canEdit={canEditBacktest}
+                            onEditTrade={openTradeCorrectionEditor}
+                            tr={tr}
+                          />
                         </motion.div>
                       )}
 

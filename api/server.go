@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/smtp"
 	"nofx/auth"
 	"nofx/backtest"
 	"nofx/config"
@@ -32,6 +35,7 @@ import (
 	"nofx/trader/okx"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,6 +52,14 @@ type Server struct {
 	debateHandler   *DebateHandler
 	httpServer      *http.Server
 	port            int
+	resetCodeMu     sync.Mutex
+	resetCodes      map[string]resetCodeEntry
+}
+
+type resetCodeEntry struct {
+	Code       string
+	ExpiresAt  time.Time
+	LastSentAt time.Time
 }
 
 // NewServer Creates API server
@@ -79,6 +91,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		backtestManager: backtestManager,
 		debateHandler:   debateHandler,
 		port:            port,
+		resetCodes:      make(map[string]resetCodeEntry),
 	}
 
 	// Setup routes
@@ -143,6 +156,7 @@ func (s *Server) setupRoutes() {
 		// Authentication related routes (no authentication required)
 		api.POST("/register", s.handleRegister)
 		api.POST("/login", s.handleLogin)
+		api.POST("/forgot-password/send-code", s.handleSendResetPasswordCode)
 		api.POST("/reset-password", s.handleResetPassword)
 
 		// Routes requiring authentication
@@ -150,6 +164,7 @@ func (s *Server) setupRoutes() {
 		{
 			// Logout (add to blacklist)
 			protected.POST("/logout", s.handleLogout)
+			protected.POST("/change-password", s.handleChangePassword)
 
 			// Server IP query (requires authentication, for whitelist configuration)
 			protected.GET("/server-ip", s.handleGetServerIP)
@@ -3263,6 +3278,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 func (s *Server) handleResetPassword(c *gin.Context) {
 	var req struct {
 		Email       string `json:"email" binding:"required,email"`
+		Code        string `json:"code" binding:"required"`
 		NewPassword string `json:"new_password" binding:"required,min=6"`
 	}
 
@@ -3275,6 +3291,11 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 	user, err := s.store.User().GetByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Email does not exist"})
+		return
+	}
+
+	if !s.verifyResetCode(req.Email, req.Code) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or expired verification code"})
 		return
 	}
 
@@ -3294,6 +3315,232 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 
 	logger.Infof("锟?User %s password has been reset", user.Email)
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful, please login with new password"})
+}
+
+func (s *Server) handleSendResetPasswordCode(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if _, err := s.store.User().GetByEmail(email); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Email does not exist"})
+		return
+	}
+
+	code, err := s.issueResetCode(email)
+	if err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := s.sendResetCodeEmail(email, code); err != nil {
+		logger.Errorf("Send reset code email failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send verification code email"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Verification code sent"})
+}
+
+func generateResetCode() (string, error) {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	for i := 0; i < 6; i++ {
+		b[i] = '0' + (b[i] % 10)
+	}
+	return string(b[:]), nil
+}
+
+func (s *Server) issueResetCode(email string) (string, error) {
+	now := time.Now()
+	s.resetCodeMu.Lock()
+	defer s.resetCodeMu.Unlock()
+
+	if entry, ok := s.resetCodes[email]; ok {
+		if now.Sub(entry.LastSentAt) < 60*time.Second {
+			return "", fmt.Errorf("Please wait 60 seconds before requesting another code")
+		}
+	}
+
+	code, err := generateResetCode()
+	if err != nil {
+		return "", err
+	}
+	s.resetCodes[email] = resetCodeEntry{
+		Code:       code,
+		LastSentAt: now,
+		ExpiresAt:  now.Add(10 * time.Minute),
+	}
+	return code, nil
+}
+
+func (s *Server) verifyResetCode(email, code string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	code = strings.TrimSpace(code)
+	now := time.Now()
+
+	s.resetCodeMu.Lock()
+	defer s.resetCodeMu.Unlock()
+
+	entry, ok := s.resetCodes[email]
+	if !ok {
+		return false
+	}
+	if now.After(entry.ExpiresAt) {
+		delete(s.resetCodes, email)
+		return false
+	}
+	if entry.Code != code {
+		return false
+	}
+	delete(s.resetCodes, email)
+	return true
+}
+
+func (s *Server) sendResetCodeEmail(toEmail, code string) error {
+	cfg := config.Get()
+	host := strings.TrimSpace(cfg.SMTPHost)
+	user := strings.TrimSpace(cfg.SMTPUser)
+	pass := cfg.SMTPPassword
+	from := strings.TrimSpace(cfg.SMTPFrom)
+	if host == "" || user == "" || pass == "" || from == "" || cfg.SMTPPort <= 0 {
+		return fmt.Errorf("SMTP config is incomplete")
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, cfg.SMTPPort)
+	auth := smtp.PlainAuth("", user, pass, host)
+	subject := "【NewMoneyClub】密码重置验证码"
+	body := strings.Join([]string{
+		"尊敬的 NewMoneyClub 用户：",
+		"",
+		"您好！",
+		"",
+		"我们收到您关于重置 NewMoneyClub 账户密码的请求。为确保账户安全，请使用以下验证码完成身份验证：",
+		"",
+		fmt.Sprintf("验证码：%s", code),
+		"有效期：10 分钟（仅可使用一次）",
+		"",
+		"操作指引：",
+		"1. 进入 NewMoneyClub 登录页，点击“忘记密码”。",
+		"2. 输入您的注册邮箱地址。",
+		"3. 输入本邮件中的验证码完成验证。",
+		"4. 按页面提示设置新密码。",
+		"",
+		"如非本人操作，请忽略此邮件，并及时检查账户安全。",
+		"",
+		"NewMoneyClub 安全团队",
+	}, "\n")
+	msg := strings.Join([]string{
+		fmt.Sprintf("From: %s", from),
+		fmt.Sprintf("To: %s", toEmail),
+		fmt.Sprintf("Subject: %s", subject),
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		body,
+	}, "\r\n")
+
+	msgBytes := []byte(msg)
+	if cfg.SMTPPort == 465 {
+		dialer := &net.Dialer{Timeout: 10 * time.Second}
+		tlsConn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			ServerName: host,
+			MinVersion: tls.VersionTLS12,
+		})
+		if err != nil {
+			return err
+		}
+		defer tlsConn.Close()
+
+		client, err := smtp.NewClient(tlsConn, host)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+		if err := client.Mail(from); err != nil {
+			return err
+		}
+		if err := client.Rcpt(toEmail); err != nil {
+			return err
+		}
+
+		w, err := client.Data()
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(msgBytes); err != nil {
+			_ = w.Close()
+			return err
+		}
+		if err := w.Close(); err != nil {
+			return err
+		}
+		return client.Quit()
+	}
+
+	return smtp.SendMail(addr, auth, from, []string{toEmail}, msgBytes)
+}
+
+// handleChangePassword Change password for logged-in user.
+func (s *Server) handleChangePassword(c *gin.Context) {
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	if req.OldPassword == req.NewPassword {
+		SafeBadRequest(c, "New password must be different from old password")
+		return
+	}
+
+	userID := strings.TrimSpace(c.GetString("user_id"))
+	email := strings.TrimSpace(c.GetString("email"))
+	if userID == "" || email == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	user, err := s.store.User().GetByEmail(email)
+	if err != nil || strings.TrimSpace(user.ID) != userID {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	if !auth.CheckPassword(req.OldPassword, user.PasswordHash) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Current password is incorrect"})
+		return
+	}
+
+	newPasswordHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Password processing failed"})
+		return
+	}
+
+	if err := s.store.User().UpdatePassword(user.ID, newPasswordHash); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Password update failed"})
+		return
+	}
+
+	logger.Infof("User %s changed password successfully", user.Email)
+	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully"})
 }
 
 // initUserDefaultConfigs Initialize default model and exchange configs for new user

@@ -29,6 +29,14 @@ interface AuthContextType {
   ) => Promise<{ success: boolean; message?: string }>
   resetPassword: (
     email: string,
+    code: string,
+    newPassword: string
+  ) => Promise<{ success: boolean; message?: string }>
+  sendResetPasswordCode: (
+    email: string
+  ) => Promise<{ success: boolean; message?: string }>
+  changePassword: (
+    oldPassword: string,
     newPassword: string
   ) => Promise<{ success: boolean; message?: string }>
   logout: () => void
@@ -52,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Reset 401 flag on page load to allow fresh 401 handling
     reset401Flag()
 
-    // 鍏堟鏌ユ槸鍚︿负绠＄悊鍛樻ā寮忥紙浣跨敤甯︾紦瀛樼殑绯荤粺閰嶇疆鑾峰彇锛?
+    // 鍏堟鏌ユ槸鍚︿负绠＄悊鍛樻ā寮忥紙浣跨敤甯︾紦瀛樼殑绯荤粺閰嶇疆鑾峰彇�?
     getSystemConfig()
       .then(() => {
         // 涓嶅啀鍦ㄧ鐞嗗憳妯″紡涓嬫ā鎷熺櫥褰曪紱缁熶竴妫€鏌ユ湰鍦板瓨鍌?
@@ -135,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Unexpected success response
-        return { success: false, message: data.message || '鐧诲綍鍝嶅簲寮傚父' }
+        return { success: false, message: data.message || 'Login response error' }
       } else {
         return {
           success: false,
@@ -143,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error) {
-      return { success: false, message: '鐧诲綍澶辫触锛岃閲嶈瘯' }
+      return { success: false, message: 'Login failed, please retry' }
     }
   }
 
@@ -184,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.history.pushState({}, '', returnUrl)
           window.dispatchEvent(new PopStateEvent('popstate'))
         } else {
-          // 璺宠浆鍒颁华琛ㄧ洏
+          // 璺宠浆鍒颁华琛ㄧ�?
           window.history.pushState({}, '', '/dashboard')
           window.dispatchEvent(new PopStateEvent('popstate'))
         }
@@ -265,7 +273,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const resetPassword = async (email: string, newPassword: string) => {
+  const sendResetPasswordCode = async (email: string) => {
+    try {
+      const response = await fetch('/api/forgot-password/send-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      })
+      let data: any = {}
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        const text = await response.text()
+        data = { error: text || `HTTP ${response.status}` }
+      }
+      if (response.ok) return { success: true, message: data.message }
+      return { success: false, message: data.error || `Request failed (${response.status})` }
+    } catch (error) {
+      return { success: false, message: 'Network error, please check backend service and browser network settings' }
+    }
+  }
+
+  const resetPassword = async (email: string, code: string, newPassword: string) => {
     try {
       const response = await fetch('/api/reset-password', {
         method: 'POST',
@@ -274,6 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           email,
+          code,
           new_password: newPassword,
         }),
       })
@@ -286,7 +319,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, message: data.error }
       }
     } catch (error) {
-      return { success: false, message: '瀵嗙爜閲嶇疆澶辫触锛岃閲嶈瘯' }
+      return { success: false, message: 'Network error, please try again later' }
+    }
+  }
+
+  const changePassword = async (oldPassword: string, newPassword: string) => {
+    try {
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          old_password: oldPassword,
+          new_password: newPassword,
+        }),
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        return { success: true, message: data.message }
+      }
+      return { success: false, message: data.error || 'Failed to change password' }
+    } catch (error) {
+      return { success: false, message: 'Failed to change password' }
     }
   }
 
@@ -314,7 +371,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         loginAdmin,
         register,
+        sendResetPasswordCode,
         resetPassword,
+        changePassword,
         logout,
         isLoading,
       }}
@@ -331,3 +390,4 @@ export function useAuth() {
   }
   return context
 }
+

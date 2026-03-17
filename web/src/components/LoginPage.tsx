@@ -212,7 +212,7 @@ export function LoginPage() {
                     <div className="text-right mt-2">
                       <button
                         type="button"
-                        onClick={() => window.location.href = '/reset-password'}
+                        onClick={() => window.location.href = '/forgot-password'}
                         className="text-[10px] uppercase tracking-wide text-zinc-500 hover:text-nofx-gold transition-colors"
                       >
                         &gt; {t('forgotPassword', language)}

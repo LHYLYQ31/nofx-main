@@ -100,7 +100,6 @@ export default function HeaderBar({
             {(() => {
               // Define all navigation tabs
               const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                { page: 'data', path: '/data', label: language === 'zh' ? '\u6570\u636e' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
                 { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '\u7b56\u7565\u5e02\u573a' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
                 { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
@@ -214,6 +213,18 @@ export default function HeaderBar({
                           {user.email}
                         </div>
                       </div>
+                      <button
+                        onClick={() => {
+                          window.location.href = '/change-password'
+                        }}
+                        className="w-full px-3 py-2 text-sm font-semibold transition-colors hover:opacity-80 text-center bg-transparent text-nofx-text-muted border-b border-nofx-gold/20"
+                      >
+                        {language === 'zh'
+                          ? '修改密码'
+                          : language === 'id'
+                            ? 'Ubah Password'
+                            : 'Change Password'}
+                      </button>
                       {onLogout && (
                         <button
                           onClick={() => {
@@ -340,7 +351,6 @@ export default function HeaderBar({
               <div className="flex flex-col gap-6 mb-12">
                 {(() => {
                   const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
-                { page: 'data', path: '/data', label: language === 'zh' ? '\u6570\u636e' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
                 { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '\u7b56\u7565\u5e02\u573a' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
                     { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
@@ -471,15 +481,30 @@ export default function HeaderBar({
 
                   {/* Auth Actions */}
                   {isLoggedIn && user ? (
-                    <button
-                      onClick={() => {
-                        onLogout?.()
-                        setMobileMenuOpen(false)
-                      }}
-                      className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg font-bold text-sm hover:bg-red-500/20 transition-colors"
-                    >
-                      {t('exitLogin', language)}
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          window.location.href = '/change-password'
+                          setMobileMenuOpen(false)
+                        }}
+                        className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-lg font-bold text-sm py-2 hover:border-nofx-gold transition-colors"
+                      >
+                        {language === 'zh'
+                          ? '修改密码'
+                          : language === 'id'
+                            ? 'Ubah Password'
+                            : 'Change Password'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          onLogout?.()
+                          setMobileMenuOpen(false)
+                        }}
+                        className="w-full bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg font-bold text-sm py-2 hover:bg-red-500/20 transition-colors"
+                      >
+                        {t('exitLogin', language)}
+                      </button>
+                    </div>
                   ) : (
                     currentPage !== 'login' && currentPage !== 'register' && (
                       <a

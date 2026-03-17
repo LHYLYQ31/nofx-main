@@ -202,6 +202,33 @@ func appendEquityPoint(runID string, point EquityPoint) error {
 	return appendJSONLine(equityLogPath(runID), point)
 }
 
+// PersistEquityPoints replaces all equity points for a run.
+func PersistEquityPoints(runID string, points []EquityPoint) error {
+	if usingDB() {
+		return replaceEquityPointsDB(runID, points)
+	}
+	if err := ensureRunDir(runID); err != nil {
+		return err
+	}
+	lines := make([][]byte, 0, len(points))
+	for _, point := range points {
+		b, err := json.Marshal(point)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, b)
+	}
+	if len(lines) == 0 {
+		return writeFileAtomic(equityLogPath(runID), []byte{}, 0o644)
+	}
+	payload := make([]byte, 0, len(lines)*64)
+	for _, line := range lines {
+		payload = append(payload, line...)
+		payload = append(payload, '\n')
+	}
+	return writeFileAtomic(equityLogPath(runID), payload, 0o644)
+}
+
 func appendTradeEvent(runID string, event TradeEvent) error {
 	if usingDB() {
 		return appendTradeEventDB(runID, event)

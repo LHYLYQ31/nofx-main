@@ -284,6 +284,66 @@ export interface BacktestRunsResponse {
   items: BacktestRunMetadata[];
 }
 
+export interface BacktestCorrectionPermission {
+  can_edit: boolean;
+  showcase_enabled: boolean;
+}
+
+export interface BacktestMetaCorrectionPatch {
+  label?: string;
+  state?: string;
+  last_error?: string;
+  symbol_count?: number;
+  decision_tf?: string;
+  processed_bars?: number;
+  progress_pct?: number;
+  equity_last?: number;
+  max_drawdown_pct?: number;
+  liquidated?: boolean;
+  liquidation_note?: string;
+}
+
+export interface BacktestMetricsCorrectionPatch {
+  total_return_pct?: number;
+  max_drawdown_pct?: number;
+  sharpe_ratio?: number;
+  profit_factor?: number;
+  win_rate?: number;
+  trades?: number;
+  avg_win?: number;
+  avg_loss?: number;
+  best_symbol?: string;
+  worst_symbol?: string;
+  liquidated?: boolean;
+}
+
+export interface BacktestCorrectionRequest {
+  run_id: string;
+  reason?: string;
+  meta?: BacktestMetaCorrectionPatch;
+  metrics?: BacktestMetricsCorrectionPatch;
+  trade_updates?: BacktestTradeCorrectionPatch[];
+}
+
+export interface BacktestTradeCorrectionPatch {
+  trade_id: number;
+  ts?: number;
+  symbol?: string;
+  action?: string;
+  side?: string;
+  qty?: number;
+  price?: number;
+  fee?: number;
+  slippage?: number;
+  order_value?: number;
+  realized_pnl?: number;
+  leverage?: number;
+  cycle?: number;
+  position_after?: number;
+  liquidation?: boolean;
+  note?: string;
+}
+
 // Position status for real-time display during backtest
 export interface BacktestPositionStatus {
   symbol: string;
@@ -324,6 +384,7 @@ export interface BacktestEquityPoint {
 }
 
 export interface BacktestTradeEvent {
+  id?: number;
   ts: number;
   symbol: string;
   action: string;

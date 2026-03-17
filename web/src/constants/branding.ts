@@ -6,8 +6,8 @@
 } as const
 
 export const OFFICIAL_LINKS = {
-  twitter: '',
+  twitter: 'https://x.com/LMDC5288',
   telegram: 'https://t.me/newmoneyclub66',
   github: '',
-} as const
+}
 
