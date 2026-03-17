@@ -163,13 +163,28 @@ func (s *UserStore) EnsureBootstrapAdmin(email, passwordHash string, idFactory f
 	var existing User
 	err := s.db.Where("email = ?", normalizedEmail).First(&existing).Error
 	if err == nil {
-		if normalizeRole(existing.Role) != "ADMIN" {
-			return s.db.Model(&User{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
-				"role":       "ADMIN",
-				"updated_at": time.Now().UTC(),
-			}).Error
+		updates := map[string]interface{}{
+			"updated_at": time.Now().UTC(),
 		}
-		return nil
+		needUpdate := false
+
+		if normalizeRole(existing.Role) != "ADMIN" {
+			updates["role"] = "ADMIN"
+			needUpdate = true
+		}
+
+		// If bootstrap password is provided, always sync it on startup.
+		// This ensures NOFX_SUPER_ADMIN_PASSWORD takes effect on every deployment.
+		if strings.TrimSpace(passwordHash) != "" && existing.PasswordHash != passwordHash {
+			updates["password_hash"] = passwordHash
+			needUpdate = true
+		}
+
+		if !needUpdate {
+			return nil
+		}
+
+		return s.db.Model(&User{}).Where("id = ?", existing.ID).Updates(updates).Error
 	}
 	if err != gorm.ErrRecordNotFound {
 		return err
