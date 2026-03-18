@@ -2574,6 +2574,17 @@ func (s *Server) handleKlines(c *gin.Context) {
 		// Hyperliquid native API - supports both crypto perps and stock perps (xyz dex)
 		klines, err = s.getKlinesFromHyperliquid(symbol, interval, limit)
 		if err != nil {
+			// Hyperliquid occasionally returns transient 5xx/null responses.
+			// Fallback to CoinAnk to keep charts available.
+			if isRetryableHyperliquidKlineError(err) {
+				logger.Warnf("Hyperliquid klines failed for %s %s (limit=%d), falling back to CoinAnk(Binance): %v", symbol, interval, limit, err)
+				coinankSymbol := market.Normalize(symbol)
+				klines, err = s.getKlinesFromCoinank(coinankSymbol, interval, "binance", limit)
+				if err == nil {
+					break
+				}
+				logger.Warnf("CoinAnk fallback failed for %s %s (limit=%d): %v", coinankSymbol, interval, limit, err)
+			}
 			SafeInternalError(c, "Get klines from Hyperliquid", err)
 			return
 		}
@@ -2828,6 +2839,31 @@ func (s *Server) getKlinesFromHyperliquid(symbol, interval string, limit int) ([
 	}
 
 	return klines, nil
+}
+
+// isRetryableHyperliquidKlineError returns true for transient upstream failures where
+// falling back to another market data source is preferable to returning 500.
+func isRetryableHyperliquidKlineError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	// Typical Hyperliquid upstream failures seen in production:
+	// - status 500 with body "null"
+	// - temporary network/timeout failures
+	if strings.Contains(msg, "status 500") ||
+		strings.Contains(msg, "status 502") ||
+		strings.Contains(msg, "status 503") ||
+		strings.Contains(msg, "status 504") ||
+		strings.Contains(msg, "): null") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "failed to execute request") {
+		return true
+	}
+
+	return false
 }
 
 // handleSymbols returns available symbols for a given exchange
