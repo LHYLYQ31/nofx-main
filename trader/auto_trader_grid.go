@@ -1668,8 +1668,11 @@ type GridRiskInfo struct {
 
 // GetGridRiskInfo returns current risk information for frontend display
 func (at *AutoTrader) GetGridRiskInfo() *GridRiskInfo {
+	if at == nil || at.config.StrategyConfig == nil {
+		return &GridRiskInfo{}
+	}
 	gridConfig := at.config.StrategyConfig.GridConfig
-	if gridConfig == nil {
+	if gridConfig == nil || at.gridState == nil {
 		return &GridRiskInfo{}
 	}
 
