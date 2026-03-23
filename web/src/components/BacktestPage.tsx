@@ -1019,8 +1019,19 @@ export function BacktestPage() {
       // Parse user symbols - if using dynamic coin strategy, allow empty
       const userSymbols = formState.symbols.split(',').map((s) => s.trim()).filter(Boolean)
 
-      // Only send empty symbols if user deliberately cleared them and strategy has dynamic coin source
-      const symbolsToSend = (userSymbols.length === 0 && strategyHasDynamicCoins) ? [] : userSymbols
+      const strategyStaticCoins = selectedStrategy?.config?.coin_source?.static_coins?.map((s) => s.trim()).filter(Boolean) || []
+
+      let symbolsToSend = userSymbols
+      if (userSymbols.length === 0) {
+        if (strategyHasDynamicCoins) {
+          symbolsToSend = []
+        } else if (formState.strategyId && strategyStaticCoins.length > 0) {
+          // Strategy selected + no manual symbols => use strategy static coin pool.
+          symbolsToSend = strategyStaticCoins
+        } else if (formState.strategyId) {
+          throw new Error('所选策略未配置可用币种，请在策略中配置静态币池或手动填写交易标的')
+        }
+      }
 
       const payload = await api.startBacktest({
         run_id: formState.runId.trim() || undefined,
@@ -1274,6 +1285,12 @@ export function BacktestPage() {
       default:
         return <Clock className="w-4 h-4" />
     }
+  }
+
+  const formatRunSymbols = (symbols?: string[]) => {
+    if (!symbols || symbols.length === 0) return '-'
+    if (symbols.length <= 3) return symbols.join(', ')
+    return `${symbols.slice(0, 3).join(', ')} +${symbols.length - 3}`
   }
 
   // Render
@@ -1893,8 +1910,16 @@ export function BacktestPage() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between mt-1">
+                        <span className="text-[11px] truncate max-w-[70%]" style={{ color: '#AEB4BC' }}>
+                          策略: {run.strategy_name || '手动配置'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
                         <span className="text-xs" style={{ color: '#848E9C' }}>
                           {run.summary.progress_pct.toFixed(0)}% | ${run.summary.equity_last.toFixed(0)}
+                        </span>
+                        <span className="text-[11px] truncate max-w-[50%]" style={{ color: '#848E9C' }}>
+                          币种: {formatRunSymbols(run.symbols)}
                         </span>
                         <button
                           onClick={(e) => {

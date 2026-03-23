@@ -271,6 +271,9 @@ export interface BacktestRunMetadata {
   run_id: string;
   label?: string;
   user_id?: string;
+  strategy_id?: string;
+  strategy_name?: string;
+  symbols?: string[];
   last_error?: string;
   version: number;
   state: string;

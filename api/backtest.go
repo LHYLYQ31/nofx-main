@@ -114,6 +114,13 @@ type backtestCorrectionRequest struct {
 	TradeUpdates []backtestCorrectionTradePatch  `json:"trade_updates"`
 }
 
+type backtestRunListItem struct {
+	*backtest.RunMetadata
+	StrategyID   string   `json:"strategy_id,omitempty"`
+	StrategyName string   `json:"strategy_name,omitempty"`
+	Symbols      []string `json:"symbols,omitempty"`
+}
+
 func (s *Server) handleBacktestStart(c *gin.Context) {
 	if s.backtestManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
@@ -171,7 +178,7 @@ func (s *Server) handleBacktestStart(c *gin.Context) {
 		if len(cfg.Symbols) == 0 {
 			symbols, err := s.resolveStrategyCoins(&strategyConfig)
 			if err != nil {
-				SafeBadRequest(c, "Failed to resolve coins from strategy")
+				SafeBadRequest(c, fmt.Sprintf("Failed to resolve coins from strategy: %v", err))
 				return
 			}
 			cfg.Symbols = symbols
@@ -390,10 +397,11 @@ func (s *Server) handleBacktestRuns(c *gin.Context) {
 		end = total
 	}
 	page := filtered[start:end]
+	items := s.decorateBacktestRunListItems(page)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total": total,
-		"items": page,
+		"items": items,
 	})
 }
 
@@ -456,11 +464,56 @@ func (s *Server) handleBacktestShowcaseRuns(c *gin.Context) {
 		end = total
 	}
 	page := filtered[start:end]
+	items := s.decorateBacktestRunListItems(page)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total": total,
-		"items": page,
+		"items": items,
 	})
+}
+
+func (s *Server) decorateBacktestRunListItems(runs []*backtest.RunMetadata) []*backtestRunListItem {
+	if len(runs) == 0 {
+		return []*backtestRunListItem{}
+	}
+
+	items := make([]*backtestRunListItem, 0, len(runs))
+	strategyNameCache := make(map[string]string)
+	for _, meta := range runs {
+		if meta == nil {
+			continue
+		}
+
+		item := &backtestRunListItem{
+			RunMetadata: meta,
+		}
+
+		cfg, err := backtest.LoadConfig(meta.RunID)
+		if err != nil || cfg == nil {
+			items = append(items, item)
+			continue
+		}
+
+		item.Symbols = append([]string(nil), cfg.Symbols...)
+		item.StrategyID = strings.TrimSpace(cfg.StrategyID)
+		if item.StrategyID == "" {
+			items = append(items, item)
+			continue
+		}
+
+		if name, ok := strategyNameCache[item.StrategyID]; ok {
+			item.StrategyName = name
+			items = append(items, item)
+			continue
+		}
+
+		if st, getErr := s.store.Strategy().GetByID(item.StrategyID); getErr == nil && st != nil {
+			item.StrategyName = strings.TrimSpace(st.Name)
+		}
+		strategyNameCache[item.StrategyID] = item.StrategyName
+		items = append(items, item)
+	}
+	return items
 }
 
 func (s *Server) handleBacktestCorrectionPermission(c *gin.Context) {
@@ -1342,6 +1395,11 @@ func (s *Server) resolveStrategyCoins(strategyConfig *store.StrategyConfig) ([]s
 	coinSource := strategyConfig.CoinSource
 	var symbols []string
 	symbolSet := make(map[string]bool)
+	gridSymbol := ""
+	if strategyConfig.GridConfig != nil {
+		gridSymbol = strings.TrimSpace(strategyConfig.GridConfig.Symbol)
+	}
+	hasUsableGridSymbol := gridSymbol != "" && !strings.EqualFold(gridSymbol, "MULTI")
 
 	// Handle empty source_type - check flags for backward compatibility
 	sourceType := coinSource.SourceType
@@ -1354,6 +1412,9 @@ func (s *Server) resolveStrategyCoins(strategyConfig *store.StrategyConfig) ([]s
 			sourceType = "oi_top"
 		} else if len(coinSource.StaticCoins) > 0 {
 			sourceType = "static"
+		} else if hasUsableGridSymbol {
+			// Grid strategy may only set grid_config.symbol.
+			sourceType = "static"
 		} else {
 			return nil, fmt.Errorf("strategy has no coin source configured")
 		}
@@ -1362,6 +1423,17 @@ func (s *Server) resolveStrategyCoins(strategyConfig *store.StrategyConfig) ([]s
 
 	switch sourceType {
 	case "static":
+		if len(coinSource.StaticCoins) == 0 && hasUsableGridSymbol {
+			sym := market.Normalize(gridSymbol)
+			if sym != "" {
+				symbols = append(symbols, sym)
+				symbolSet[sym] = true
+				break
+			}
+		}
+		if len(coinSource.StaticCoins) == 0 {
+			return nil, fmt.Errorf("strategy coin_source is static but static_coins is empty")
+		}
 		for _, sym := range coinSource.StaticCoins {
 			sym = market.Normalize(sym)
 			if !symbolSet[sym] {
