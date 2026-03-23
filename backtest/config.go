@@ -28,6 +28,7 @@ type LeverageConfig struct {
 type BacktestConfig struct {
 	RunID                string   `json:"run_id"`
 	UserID               string   `json:"user_id,omitempty"`
+	UserEmail            string   `json:"user_email,omitempty"`
 	AIModelID            string   `json:"ai_model_id,omitempty"`
 	StrategyID           string   `json:"strategy_id,omitempty"` // Optional: use saved strategy from Strategy Studio
 	Symbols              []string `json:"symbols"`
@@ -72,6 +73,7 @@ func (cfg *BacktestConfig) Validate() error {
 	if cfg.UserID == "" {
 		cfg.UserID = "default"
 	}
+	cfg.UserEmail = strings.ToLower(strings.TrimSpace(cfg.UserEmail))
 	cfg.AIModelID = strings.TrimSpace(cfg.AIModelID)
 
 	if len(cfg.Symbols) == 0 {
@@ -241,12 +243,12 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 
 	return &store.StrategyConfig{
 		CoinSource: store.CoinSourceConfig{
-			SourceType: "static",
+			SourceType:  "static",
 			StaticCoins: cfg.Symbols,
-			UseAI500:   false,
-			AI500Limit: len(cfg.Symbols),
-			UseOITop:   false,
-			OITopLimit: 0,
+			UseAI500:    false,
+			AI500Limit:  len(cfg.Symbols),
+			UseOITop:    false,
+			OITopLimit:  0,
 		},
 		Indicators: store.IndicatorConfig{
 			Klines: store.KlineConfig{

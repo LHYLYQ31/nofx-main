@@ -184,7 +184,7 @@ export function StrategyPermissionPage() {
   const loadStrategies = async () => {
     setLoading(true)
     try {
-      const strategyList = await api.getStrategies()
+      const strategyList = await api.getAvailableStrategies()
       setStrategies(strategyList)
     } catch (error) {
       notify.error(getErrorMessage(error, i18n.errLoadStrategies))

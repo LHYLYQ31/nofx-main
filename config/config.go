@@ -49,6 +49,12 @@ type Config struct {
 	BacktestShowcaseEmail string
 	// Deprecated fallback: showcase owner user_id.
 	BacktestShowcaseUserID string
+	// Backtest Discord webhook. When configured, selected users' backtest trades can be pushed to Discord.
+	BacktestDiscordWebhookURL string
+	// Comma-separated emails allowed to send backtest trade notifications.
+	BacktestDiscordNotifyEmails string
+	// Optional sender name shown in Discord webhook messages.
+	BacktestDiscordUsername string
 
 	// SMTP config (for password reset verification email)
 	SMTPHost     string
@@ -118,6 +124,12 @@ func Init() {
 	cfg.TwelveDataKey = os.Getenv("TWELVEDATA_API_KEY")
 	cfg.BacktestShowcaseEmail = strings.ToLower(strings.TrimSpace(os.Getenv("NOFX_BACKTEST_SHOWCASE_EMAIL")))
 	cfg.BacktestShowcaseUserID = strings.TrimSpace(os.Getenv("NOFX_BACKTEST_SHOWCASE_USER_ID"))
+	cfg.BacktestDiscordWebhookURL = strings.TrimSpace(os.Getenv("NOFX_BACKTEST_DISCORD_WEBHOOK_URL"))
+	cfg.BacktestDiscordNotifyEmails = strings.ToLower(strings.TrimSpace(os.Getenv("NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS")))
+	cfg.BacktestDiscordUsername = strings.TrimSpace(os.Getenv("NOFX_BACKTEST_DISCORD_USERNAME"))
+	if cfg.BacktestDiscordUsername == "" {
+		cfg.BacktestDiscordUsername = "newmoneyclub"
+	}
 	cfg.SMTPHost = strings.TrimSpace(os.Getenv("SMTP_HOST"))
 	if v := os.Getenv("SMTP_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil && port > 0 {
@@ -178,4 +190,34 @@ func Get() *Config {
 		Init()
 	}
 	return global
+}
+
+// IsBacktestDiscordEnabled returns true when webhook + notify user list are configured.
+func (c *Config) IsBacktestDiscordEnabled() bool {
+	if c == nil {
+		return false
+	}
+	return strings.TrimSpace(c.BacktestDiscordWebhookURL) != "" &&
+		strings.TrimSpace(c.BacktestDiscordNotifyEmails) != ""
+}
+
+// IsBacktestDiscordEmailAllowed checks whether an email is in NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS.
+func (c *Config) IsBacktestDiscordEmailAllowed(email string) bool {
+	if c == nil {
+		return false
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false
+	}
+	allowed := strings.ToLower(strings.TrimSpace(c.BacktestDiscordNotifyEmails))
+	if allowed == "" {
+		return false
+	}
+	for _, raw := range strings.Split(allowed, ",") {
+		if strings.ToLower(strings.TrimSpace(raw)) == email {
+			return true
+		}
+	}
+	return false
 }

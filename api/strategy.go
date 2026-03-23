@@ -9,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -735,4 +736,55 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 	}
 
 	return response, nil
+}
+
+// validateAIModelCredential checks whether the provided model credential can reach upstream successfully.
+// This is used before binding/updating API key in model config.
+func (s *Server) validateAIModelCredential(provider, apiKey, customURL, customModel string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	apiKey = strings.TrimSpace(apiKey)
+	customURL = strings.TrimSpace(customURL)
+	customModel = strings.TrimSpace(customModel)
+
+	if apiKey == "" {
+		return fmt.Errorf("empty api key")
+	}
+	if provider == "" {
+		return fmt.Errorf("empty provider")
+	}
+
+	var aiClient mcp.AIClient
+	switch provider {
+	case "qwen":
+		aiClient = mcp.NewQwenClient()
+	case "deepseek":
+		aiClient = mcp.NewDeepSeekClient()
+	case "claude":
+		aiClient = mcp.NewClaudeClient()
+	case "kimi":
+		aiClient = mcp.NewKimiClient()
+	case "gemini":
+		aiClient = mcp.NewGeminiClient()
+	case "grok":
+		aiClient = mcp.NewGrokClient()
+	case "openai":
+		aiClient = mcp.NewOpenAIClient()
+	case "minimax":
+		aiClient = mcp.NewMiniMaxClient()
+	default:
+		aiClient = mcp.NewClient()
+	}
+
+	aiClient.SetAPIKey(apiKey, customURL, customModel)
+	aiClient.SetTimeout(20 * time.Second)
+
+	// Minimal paid validation request: if upstream call succeeds, key/base/model are usable.
+	_, err := aiClient.CallWithMessages(
+		"You are a connectivity checker. Reply with OK only.",
+		"Reply with OK.",
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }

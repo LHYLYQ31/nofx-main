@@ -1824,11 +1824,31 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 	// Update each model's configuration and track traders that need reload
 	tradersToReload := make(map[string]bool)
 	for modelID, modelData := range req.Models {
+		provider := strings.ToLower(strings.TrimSpace(modelID))
+		if existingModel, getErr := s.store.AIModel().Get(userID, modelID); getErr == nil {
+			if p := strings.ToLower(strings.TrimSpace(existingModel.Provider)); p != "" {
+				provider = p
+			}
+		} else if idx := strings.LastIndex(modelID, "_"); idx >= 0 && idx+1 < len(modelID) {
+			provider = strings.ToLower(strings.TrimSpace(modelID[idx+1:]))
+		}
+
 		// SSRF protection: validate custom_api_url before storing
 		if modelData.CustomAPIURL != "" {
 			cleanURL := strings.TrimSuffix(modelData.CustomAPIURL, "#")
 			if err := security.ValidateURL(cleanURL); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid custom_api_url for model %s: %s", modelID, err.Error())})
+				return
+			}
+		}
+
+		// Validate API key/base URL by doing one real upstream call before binding.
+		if strings.TrimSpace(modelData.APIKey) != "" {
+			if err := s.validateAIModelCredential(provider, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName); err != nil {
+				logger.Infof("❌ AI model credential validation failed (user=%s model=%s provider=%s): %v", userID, modelID, provider, err)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "key 或 base 配置不正确，请重新添加",
+				})
 				return
 			}
 		}

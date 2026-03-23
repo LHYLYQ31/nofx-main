@@ -375,6 +375,23 @@ When enabled, browser uses Web Crypto API to encrypt API keys before transmissio
 
 ---
 
+### Optional: Backtest Trade Notifications to Discord
+
+If you want NOFX to push backtest buy/sell points to Discord for specific account(s), configure:
+
+```bash
+NOFX_BACKTEST_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS=user1@example.com,user2@example.com
+NOFX_BACKTEST_DISCORD_USERNAME=NOFX Backtest Bot
+```
+
+Notes:
+- Notifications are sent only for backtest runs where `config.user_email` is in `NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS`.
+- Webhook send failures are logged but do not stop backtest execution.
+- Keep webhook URLs private and rotate immediately if leaked.
+
+---
+
 ## Initial Setup (Web Interface)
 
 After starting the system, configure through the web interface:

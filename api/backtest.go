@@ -132,6 +132,7 @@ func (s *Server) handleBacktestStart(c *gin.Context) {
 	}
 	cfg.CustomPrompt = strings.TrimSpace(cfg.CustomPrompt)
 	cfg.UserID = normalizeUserID(c.GetString("user_id"))
+	cfg.UserEmail = normalizeEmail(c.GetString("email"))
 
 	logger.Infof("📊 Backtest request - symbols from request: %v (count=%d), strategyID: %s",
 		cfg.Symbols, len(cfg.Symbols), cfg.StrategyID)

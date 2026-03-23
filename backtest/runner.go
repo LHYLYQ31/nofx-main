@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"nofx/config"
 	"nofx/logger"
 	"os"
 	"path/filepath"
@@ -63,6 +64,8 @@ type Runner struct {
 	lockInfo     *RunLockInfo
 	lockStop     chan struct{}
 	lockStopOnce sync.Once // Ensures lockStop is closed only once
+
+	discordNotifier *discordNotifier
 }
 
 // NewRunner constructs a backtest runner.
@@ -138,6 +141,7 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 		aiCache:        aiCache,
 		cachePath:      cachePath,
 	}
+	r.discordNotifier = buildBacktestDiscordNotifier(cfg)
 
 	if err := r.initLock(); err != nil {
 		return nil, err
@@ -446,6 +450,7 @@ func (r *Runner) stepOnce() error {
 		if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
 			return err
 		}
+		r.notifyTradeSignal(evt, snapshot.Equity)
 	}
 
 	if record != nil {
@@ -629,10 +634,21 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 
 	usedLeverage := r.resolveLeverage(dec.Leverage, symbol)
 	actionRecord := store.DecisionAction{
-		Action:    dec.Action,
-		Symbol:    symbol,
-		Leverage:  usedLeverage,
-		Timestamp: time.UnixMilli(ts).UTC(),
+		Action:     dec.Action,
+		Symbol:     symbol,
+		Leverage:   usedLeverage,
+		StopLoss:   dec.StopLoss,
+		TakeProfit: dec.TakeProfit,
+		Confidence: dec.Confidence,
+		Reasoning:  strings.TrimSpace(dec.Reasoning),
+		Timestamp:  time.UnixMilli(ts).UTC(),
+	}
+
+	// Safe fallback decision may return Symbol=ALL + Action=wait.
+	// hold/wait should not depend on symbol price availability.
+	switch dec.Action {
+	case "hold", "wait":
+		return actionRecord, nil, fmt.Sprintf("hold position: %s", dec.Action), nil
 	}
 
 	if priceMap == nil {
@@ -663,8 +679,11 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Symbol:        symbol,
 			Action:        dec.Action,
 			Side:          "long",
+			Reasoning:     strings.TrimSpace(dec.Reasoning),
 			Quantity:      qty,
 			Price:         execPrice,
+			StopLoss:      dec.StopLoss,
+			TakeProfit:    dec.TakeProfit,
 			Fee:           fee,
 			Slippage:      execPrice - basePrice,
 			OrderValue:    execPrice * qty,
@@ -692,8 +711,11 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Symbol:        symbol,
 			Action:        dec.Action,
 			Side:          "short",
+			Reasoning:     strings.TrimSpace(dec.Reasoning),
 			Quantity:      qty,
 			Price:         execPrice,
+			StopLoss:      dec.StopLoss,
+			TakeProfit:    dec.TakeProfit,
 			Fee:           fee,
 			Slippage:      basePrice - execPrice,
 			OrderValue:    execPrice * qty,
@@ -722,8 +744,11 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Symbol:        symbol,
 			Action:        dec.Action,
 			Side:          "long",
+			Reasoning:     strings.TrimSpace(dec.Reasoning),
 			Quantity:      qty,
 			Price:         execPrice,
+			StopLoss:      dec.StopLoss,
+			TakeProfit:    dec.TakeProfit,
 			Fee:           fee,
 			Slippage:      basePrice - execPrice,
 			OrderValue:    execPrice * qty,
@@ -752,8 +777,11 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Symbol:        symbol,
 			Action:        dec.Action,
 			Side:          "short",
+			Reasoning:     strings.TrimSpace(dec.Reasoning),
 			Quantity:      qty,
 			Price:         execPrice,
+			StopLoss:      dec.StopLoss,
+			TakeProfit:    dec.TakeProfit,
 			Fee:           fee,
 			Slippage:      execPrice - basePrice,
 			OrderValue:    execPrice * qty,
@@ -764,8 +792,6 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 		}
 		return actionRecord, []TradeEvent{trade}, "", nil
 
-	case "hold", "wait":
-		return actionRecord, nil, fmt.Sprintf("hold position: %s", dec.Action), nil
 	default:
 		return actionRecord, nil, "", fmt.Errorf("unsupported action %s", dec.Action)
 	}
@@ -1312,6 +1338,30 @@ func (r *Runner) logDecision(record *store.DecisionRecord) error {
 	}
 	persistDecisionRecord(r.cfg.RunID, record)
 	return nil
+}
+
+func buildBacktestDiscordNotifier(cfg BacktestConfig) *discordNotifier {
+	globalCfg := config.Get()
+	if !globalCfg.IsBacktestDiscordEnabled() {
+		return nil
+	}
+	if !globalCfg.IsBacktestDiscordEmailAllowed(cfg.UserEmail) {
+		return nil
+	}
+	return newDiscordNotifier(
+		globalCfg.BacktestDiscordWebhookURL,
+		globalCfg.BacktestDiscordUsername,
+	)
+}
+
+func (r *Runner) notifyTradeSignal(evt TradeEvent, equity float64) {
+	if r == nil || r.discordNotifier == nil {
+		return
+	}
+	if err := r.discordNotifier.notifyTrade(r.cfg.RunID, r.cfg.UserEmail, evt, equity); err != nil {
+		logger.Warnf("backtest discord notify failed run=%s email=%s symbol=%s action=%s: %v",
+			r.cfg.RunID, r.cfg.UserEmail, evt.Symbol, evt.Action, err)
+	}
 }
 
 func (r *Runner) persistMetrics(force bool) {

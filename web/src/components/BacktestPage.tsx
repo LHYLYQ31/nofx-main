@@ -812,6 +812,7 @@ export function BacktestPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [isCorrectionOpen, setIsCorrectionOpen] = useState(false)
   const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false)
+  const [selectedQuickHours, setSelectedQuickHours] = useState<number | null>(72)
   const [flashStats, setFlashStats] = useState<Record<string, boolean>>({})
   const [correctionForm, setCorrectionForm] = useState({
     reason: '',
@@ -903,6 +904,11 @@ export function BacktestPage() {
   const selectedRun = runs.find((r) => r.run_id === selectedRunId)
   const selectedModel = aiModels?.find((m) => m.id === formState.aiModelId)
   const selectedStrategy = strategies?.find((s) => s.id === formState.strategyId)
+  const isDecisionTfValid = formState.timeframes.includes(formState.decisionTf)
+  const decisionTfHint =
+    language === 'zh'
+      ? '决策周期必须包含在时间周期中，请先选择包含该周期的 timeframes。'
+      : 'Decision timeframe must be included in selected timeframes.'
 
   // Check if selected strategy has dynamic coin source
   const strategyHasDynamicCoins = useMemo(() => {
@@ -987,6 +993,9 @@ export function BacktestPage() {
 
   // Handlers
   const handleFormChange = (key: string, value: string | number | boolean | string[]) => {
+    if (key === 'start' || key === 'end') {
+      setSelectedQuickHours(null)
+    }
     setFormState((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -994,6 +1003,10 @@ export function BacktestPage() {
     event.preventDefault()
     if (!selectedModel?.enabled) {
       setToast({ text: tr('toasts.selectModel'), tone: 'error' })
+      return
+    }
+    if (!isDecisionTfValid) {
+      setToast({ text: decisionTfHint, tone: 'error' })
       return
     }
 
@@ -1112,10 +1125,14 @@ export function BacktestPage() {
   ]
 
   const applyQuickRange = (hours: number) => {
+    setSelectedQuickHours(hours)
     const endDate = new Date()
     const startDate = new Date(endDate.getTime() - hours * 3600 * 1000)
-    handleFormChange('start', toLocalInput(startDate))
-    handleFormChange('end', toLocalInput(endDate))
+    setFormState((prev) => ({
+      ...prev,
+      start: toLocalInput(startDate),
+      end: toLocalInput(endDate),
+    }))
   }
 
   const openTradeCorrectionEditor = (trade: BacktestTradeEvent) => {
@@ -1518,17 +1535,25 @@ export function BacktestPage() {
                           {tr('form.timeRangeLabel')}
                         </label>
                         <div className="flex flex-wrap gap-1 mb-2">
-                          {quickRanges.map((r) => (
-                            <button
-                              key={r.hours}
-                              type="button"
-                              onClick={() => applyQuickRange(r.hours)}
-                              className="px-3 py-1 rounded text-xs"
-                              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
-                            >
-                              {r.label}
-                            </button>
-                          ))}
+                          {quickRanges.map((r) => {
+                            const isSelected = selectedQuickHours === r.hours
+                            return (
+                              <button
+                                key={r.hours}
+                                type="button"
+                                onClick={() => applyQuickRange(r.hours)}
+                                className="px-3 py-1 rounded text-xs"
+                                style={{
+                                  background: isSelected ? 'rgba(240, 185, 11, 0.18)' : '#1E2329',
+                                  border: isSelected ? '1px solid rgba(240, 185, 11, 0.85)' : '1px solid #2B3139',
+                                  color: isSelected ? '#F0B90B' : '#EAECEF',
+                                  boxShadow: isSelected ? '0 0 0 1px rgba(240,185,11,0.2) inset' : 'none',
+                                }}
+                              >
+                                {r.label}
+                              </button>
+                            )
+                          })}
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <input
@@ -1598,7 +1623,11 @@ export function BacktestPage() {
                           </label>
                           <select
                             className="w-full p-2 rounded-lg text-xs"
-                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                            style={{
+                              background: '#0B0E11',
+                              border: isDecisionTfValid ? '1px solid #2B3139' : '1px solid #F6465D',
+                              color: '#EAECEF',
+                            }}
                             value={formState.decisionTf}
                             onChange={(e) => handleFormChange('decisionTf', e.target.value)}
                           >
@@ -1610,6 +1639,11 @@ export function BacktestPage() {
                           </select>
                         </div>
                       </div>
+                      {!isDecisionTfValid && (
+                        <p className="text-xs" style={{ color: '#F6465D' }}>
+                          {decisionTfHint}
+                        </p>
+                      )}
 
                       <div className="flex gap-2">
                         <button
@@ -1624,7 +1658,8 @@ export function BacktestPage() {
                         <button
                           type="button"
                           onClick={() => setWizardStep(3)}
-                          className="flex-1 py-2 rounded-lg font-medium flex items-center justify-center gap-2"
+                          disabled={!isDecisionTfValid}
+                          className="flex-1 py-2 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
                           style={{ background: '#F0B90B', color: '#0B0E11' }}
                         >
                           {tr('ui.next')}
@@ -1765,7 +1800,7 @@ export function BacktestPage() {
                         </button>
                         <button
                           type="submit"
-                          disabled={isStarting}
+                          disabled={isStarting || !isDecisionTfValid}
                           className="flex-1 py-2 rounded-lg font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                           style={{ background: '#F0B90B', color: '#0B0E11' }}
                         >
@@ -1828,9 +1863,17 @@ export function BacktestPage() {
                   </div>
                 ) : (
                   runs.map((run) => (
-                    <button
+                    <div
                       key={run.run_id}
                       onClick={() => setSelectedRunId(run.run_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedRunId(run.run_id)
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                       className="w-full p-3 rounded-lg text-left transition-all"
                       style={{
                         background: run.run_id === selectedRunId ? 'rgba(240,185,11,0.1)' : '#1E2329',
@@ -1874,7 +1917,7 @@ export function BacktestPage() {
                           />
                         </button>
                       </div>
-                    </button>
+                    </div>
                   ))
                 )}
               </div>

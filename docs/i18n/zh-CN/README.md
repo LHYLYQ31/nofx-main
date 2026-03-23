@@ -346,6 +346,23 @@ TRANSPORT_ENCRYPTION=true
 
 ---
 
+### 可选：回测买卖点推送到 Discord
+
+如果你希望在回测时把买卖点信号推送到 Discord（仅限指定账户），在 `.env` 中配置：
+
+```bash
+NOFX_BACKTEST_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS=user1@example.com,user2@example.com
+NOFX_BACKTEST_DISCORD_USERNAME=NOFX Backtest Bot
+```
+
+说明：
+- 只有 `config.user_email` 命中 `NOFX_BACKTEST_DISCORD_NOTIFY_EMAILS` 的回测任务会发送通知。
+- Discord 发送失败只会记录日志，不会中断回测执行。
+- Webhook 地址属于敏感信息，泄露后请立即更换。
+
+---
+
 ## 初始配置 (Web 界面)
 
 启动系统后，通过 Web 界面进行配置:

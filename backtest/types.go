@@ -65,8 +65,11 @@ type TradeEvent struct {
 	Symbol          string  `json:"symbol"`
 	Action          string  `json:"action"`
 	Side            string  `json:"side,omitempty"`
+	Reasoning       string  `json:"reasoning,omitempty"`
 	Quantity        float64 `json:"qty"`
 	Price           float64 `json:"price"`
+	StopLoss        float64 `json:"stop_loss,omitempty"`
+	TakeProfit      float64 `json:"take_profit,omitempty"`
 	Fee             float64 `json:"fee"`
 	Slippage        float64 `json:"slippage"`
 	OrderValue      float64 `json:"order_value"`
