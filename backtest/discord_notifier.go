@@ -119,38 +119,38 @@ func buildOpenSignalDescription(evt TradeEvent) string {
 	tp1, tp2, tp3 := signalTargets(evt)
 	leverageText := signalLeverageText(evt.Leverage)
 
-	return fmt.Sprintf(`交易逻辑 (The Why):
+	return fmt.Sprintf(`📊 **交易逻辑 (The Why):**
 %s
 
-执行参数 (Execution):
-入场区间 (Entry): %s - %s（分批建仓，不要一次性打满）
-止损 (Hard SL): %s（跌破关键结构位绝对平仓，不要扛单！）
+⚔️ **执行参数 (Execution):**
+👉 **入场区间 (Entry):** %s - %s（分批建仓，不要一次性打满）
+🛑 **止损 (Hard SL):** %s（跌破关键结构位绝对平仓，不要扛单！）
 
-止盈目标 (Targets):
-TP1: %s（到达后推保护性止损至开仓价，锁定本金）
-TP2: %s（减仓 50%%）
-TP3: %s（尾仓格局）
+🎯 **止盈目标 (Targets):**
+🥇 **TP1:** %s（到达后推保护性止损至开仓价，锁定本金）
+🥈 **TP2:** %s（减仓 50%%）
+🥉 **TP3:** %s（尾仓格局）
 
-风控建议 (Risk Mgt):
+⚙️ **风控建议 (Risk Mgt):**
 杠杆建议：%s
 仓位限制：单笔亏损严格控制在总资金的 2%% 以内。
 
-New Money AI 辅助决策系统`, logicText, entryLow, entryHigh, stopLoss, tp1, tp2, tp3, leverageText)
+🤖 **New Money AI 辅助决策系统**`, logicText, entryLow, entryHigh, stopLoss, tp1, tp2, tp3, leverageText)
 }
 
 func buildCloseSignalDescription(evt TradeEvent) string {
 	logicText := logicFromReasoning(evt.Reasoning)
-	return fmt.Sprintf(`平仓执行 (Execution):
+	return fmt.Sprintf(`⚔️ **执行参数 (Execution):**
 交易动作：%s
 方向：%s
 数量：%s
 成交价：%s
 已实现盈亏：%s
 
-说明 (Notes):
+📝 **说明 (Notes):**
 %s
 
-New Money AI 辅助决策系统`,
+🤖 **New Money AI 辅助决策系统**`,
 		fallbackText(evt.Action, "待补充"),
 		fallbackText(evt.Side, "待补充"),
 		trimFloat(evt.Quantity, 6),
@@ -165,20 +165,20 @@ func signalTitle(evt TradeEvent) (string, int) {
 	action := strings.ToLower(strings.TrimSpace(evt.Action))
 	switch action {
 	case "open_long":
-		return fmt.Sprintf("#做多信号 | $%s", pair), discordColorGreen
+		return fmt.Sprintf("🦅 #做多信号 | $%s", pair), discordColorGreen
 	case "open_short":
-		return fmt.Sprintf("#做空信号 | $%s", pair), discordColorRed
+		return fmt.Sprintf("🦅 #做空信号 | $%s", pair), discordColorRed
 	case "close_short":
-		return fmt.Sprintf("#平仓信号 | $%s", pair), discordColorGreen
+		return fmt.Sprintf("🦅 #平仓信号 | $%s", pair), discordColorGreen
 	case "close_long":
-		return fmt.Sprintf("#平仓信号 | $%s", pair), discordColorRed
+		return fmt.Sprintf("🦅 #平仓信号 | $%s", pair), discordColorRed
 	case "liquidated":
-		return fmt.Sprintf("#风控信号 | $%s", pair), discordColorRed
+		return fmt.Sprintf("🦅 #风控信号 | $%s", pair), discordColorRed
 	default:
 		if evt.RealizedPnL >= 0 {
-			return fmt.Sprintf("#交易信号 | $%s", pair), discordColorGreen
+			return fmt.Sprintf("🦅 #交易信号 | $%s", pair), discordColorGreen
 		}
-		return fmt.Sprintf("#交易信号 | $%s", pair), discordColorRed
+		return fmt.Sprintf("🦅 #交易信号 | $%s", pair), discordColorRed
 	}
 }
 

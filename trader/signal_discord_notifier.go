@@ -145,13 +145,13 @@ func traderSignalTitle(action, symbol string) (string, int) {
 	pair := formatTraderPair(symbol)
 	switch action {
 	case "open_long":
-		return fmt.Sprintf("#做多信号 | $%s", pair), 0x00C853
+		return fmt.Sprintf("🦅 #做多信号 | $%s", pair), 0x00C853
 	case "open_short":
-		return fmt.Sprintf("#做空信号 | $%s", pair), 0xD50000
+		return fmt.Sprintf("🦅 #做空信号 | $%s", pair), 0xD50000
 	case "close_long", "close_short":
-		return fmt.Sprintf("#平仓信号 | $%s", pair), 0xF0B90B
+		return fmt.Sprintf("🦅 #平仓信号 | $%s", pair), 0xF0B90B
 	default:
-		return fmt.Sprintf("#交易信号 | $%s", pair), 0x3B82F6
+		return fmt.Sprintf("🦅 #交易信号 | $%s", pair), 0x3B82F6
 	}
 }
 
@@ -181,35 +181,35 @@ func traderSignalDescription(traderName string, decision *kernel.Decision, actio
 			leverage = fmt.Sprintf("最高 %dx", decision.Leverage)
 		}
 		return fmt.Sprintf(`交易员: %s
-交易逻辑 (The Why):
+📊 **交易逻辑 (The Why):**
 %s
 
-执行参数 (Execution):
-入场区间 (Entry): %s - %s（分批建仓，不要一次性打满）
-止损 (Hard SL): %s（跌破关键结构位绝对平仓，不要扛单！）
+⚔️ **执行参数 (Execution):**
+👉 **入场区间 (Entry):** %s - %s（分批建仓，不要一次性打满）
+🛑 **止损 (Hard SL):** %s（跌破关键结构位绝对平仓，不要扛单！）
 
-止盈目标 (Targets):
-TP1: %s（到达后推保护性止损至开仓价，锁定本金）
-TP2: %s（减仓 50%%）
-TP3: %s（尾仓格局）
+🎯 **止盈目标 (Targets):**
+🥇 **TP1:** %s（到达后推保护性止损至开仓价，锁定本金）
+🥈 **TP2:** %s（减仓 50%%）
+🥉 **TP3:** %s（尾仓格局）
 
-风控建议 (Risk Mgt):
+⚙️ **风控建议 (Risk Mgt):**
 杠杆建议：%s
 仓位限制：单笔亏损严格控制在总资金的 2%% 以内。
 
-New Money AI 辅助决策系统`, traderFallback(traderName, "-"), logic, entryLow, entryHigh, sl, tp1, tp2, tp3, leverage)
+🤖 **New Money AI 辅助决策系统**`, traderFallback(traderName, "-"), logic, entryLow, entryHigh, sl, tp1, tp2, tp3, leverage)
 	}
 
 	return fmt.Sprintf(`交易员: %s
-执行参数 (Execution):
+⚔️ **执行参数 (Execution):**
 交易动作: %s
 数量: %s
 价格: %s
 
-说明 (Notes):
+📝 **说明 (Notes):**
 %s
 
-New Money AI 辅助决策系统`,
+🤖 **New Money AI 辅助决策系统**`,
 		traderFallback(traderName, "-"),
 		traderFallback(decision.Action, "待补充"),
 		traderTrimFloat(action.Quantity, 6),
