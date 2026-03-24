@@ -34,6 +34,29 @@ func validateStrategyConfig(config *store.StrategyConfig) []string {
 	return warnings
 }
 
+// validateStrategyConfigErrors validates hard constraints and returns blocking errors.
+func validateStrategyConfigErrors(config *store.StrategyConfig) []string {
+	var errs []string
+	if config == nil {
+		return []string{"strategy config is required"}
+	}
+
+	if config.StrategyType == "grid_trading" {
+		if config.GridConfig == nil {
+			errs = append(errs, "grid_trading strategy requires grid_config")
+		} else {
+			sym := strings.TrimSpace(config.GridConfig.Symbol)
+			if sym == "" {
+				errs = append(errs, "grid_trading strategy requires grid_config.symbol")
+			} else if strings.EqualFold(sym, "MULTI") {
+				errs = append(errs, "grid_trading does not support MULTI symbol in live trader. Please set a real symbol like BTCUSDT")
+			}
+		}
+	}
+
+	return errs
+}
+
 // handlePublicStrategies Get public strategies for strategy market (no auth required)
 func (s *Server) handlePublicStrategies(c *gin.Context) {
 	strategies, err := s.store.Strategy().ListPublic()
@@ -237,6 +260,10 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 		SafeBadRequest(c, "Invalid request parameters")
 		return
 	}
+	if errs := validateStrategyConfigErrors(&req.Config); len(errs) > 0 {
+		SafeBadRequest(c, fmt.Sprintf("Invalid strategy config: %s", strings.Join(errs, "; ")))
+		return
+	}
 
 	// Serialize configuration
 	configJSON, err := json.Marshal(req.Config)
@@ -309,6 +336,10 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	if errs := validateStrategyConfigErrors(&req.Config); len(errs) > 0 {
+		SafeBadRequest(c, fmt.Sprintf("Invalid strategy config: %s", strings.Join(errs, "; ")))
 		return
 	}
 

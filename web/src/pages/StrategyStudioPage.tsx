@@ -92,6 +92,24 @@ export function StrategyStudioPage() {
   } | null>(null)
   const [isRunningAiTest, setIsRunningAiTest] = useState(false)
 
+  const extractResponseError = async (response: Response, fallback: string) => {
+    try {
+      const text = await response.text()
+      if (!text) return fallback
+      try {
+        const parsed = JSON.parse(text)
+        if (parsed && typeof parsed === 'object') {
+          return parsed.error || parsed.message || fallback
+        }
+      } catch {
+        // non-JSON response body
+      }
+      return text
+    } catch {
+      return fallback
+    }
+  }
+
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({
       ...prev,
@@ -360,7 +378,10 @@ export function StrategyStudioPage() {
           config: importData.config,
         }),
       })
-      if (!response.ok) throw new Error('Failed to import strategy')
+      if (!response.ok) {
+        const fallback = language === 'zh' ? '导入策略失败' : 'Failed to import strategy'
+        throw new Error(await extractResponseError(response, fallback))
+      }
 
       notify.success(language === 'zh' ? '策略已导入' : 'Strategy imported')
       await fetchStrategies()
@@ -400,7 +421,10 @@ export function StrategyStudioPage() {
           }),
         }
       )
-      if (!response.ok) throw new Error('Failed to save strategy')
+      if (!response.ok) {
+        const fallback = language === 'zh' ? '保存策略失败' : 'Failed to save strategy'
+        throw new Error(await extractResponseError(response, fallback))
+      }
       setHasChanges(false)
       notify.success(language === 'zh' ? '策略已保存' : 'Strategy saved')
       await fetchStrategies()

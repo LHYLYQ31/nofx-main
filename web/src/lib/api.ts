@@ -32,6 +32,8 @@ import type {
   DebateVote,
   DebatePersonalityInfo,
   PositionHistoryResponse,
+  StrategyWebhookItem,
+  SignalNotifyUserItem,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -787,6 +789,48 @@ export const api = {
       { strategy_ids: strategyIDs }
     )
     if (!result.success) throw new Error('??????????')
+  },
+
+  async getAdminStrategyWebhooks(): Promise<StrategyWebhookItem[]> {
+    const result = await httpClient.get<{ items: StrategyWebhookItem[] }>(
+      `${API_BASE}/admin/strategy-webhooks`
+    )
+    if (!result.success) throw new Error('Failed to load strategy webhooks')
+    return result.data?.items || []
+  },
+
+  async upsertAdminStrategyWebhook(payload: {
+    strategy_id: string
+    webhook_url: string
+    enabled: boolean
+  }): Promise<void> {
+    const result = await httpClient.put(`${API_BASE}/admin/strategy-webhooks`, payload)
+    if (!result.success) throw new Error('Failed to save strategy webhook')
+  },
+
+  async deleteAdminStrategyWebhook(strategyID: string): Promise<void> {
+    const result = await httpClient.delete(`${API_BASE}/admin/strategy-webhooks/${strategyID}`)
+    if (!result.success) throw new Error('Failed to delete strategy webhook')
+  },
+
+  async getAdminSignalNotifyUsers(): Promise<SignalNotifyUserItem[]> {
+    const result = await httpClient.get<{ items: SignalNotifyUserItem[] }>(
+      `${API_BASE}/admin/signal-notify-users`
+    )
+    if (!result.success) throw new Error('Failed to load notify users')
+    return result.data?.items || []
+  },
+
+  async upsertAdminSignalNotifyUser(payload: { email: string; enabled: boolean }): Promise<void> {
+    const result = await httpClient.put(`${API_BASE}/admin/signal-notify-users`, payload)
+    if (!result.success) throw new Error('Failed to save notify user')
+  },
+
+  async deleteAdminSignalNotifyUser(email: string): Promise<void> {
+    const result = await httpClient.delete(
+      `${API_BASE}/admin/signal-notify-users/${encodeURIComponent(email)}`
+    )
+    if (!result.success) throw new Error('Failed to delete notify user')
   },
 
   // Debate Arena APIs

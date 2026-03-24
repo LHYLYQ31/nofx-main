@@ -14,6 +14,7 @@ import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import { StrategyPermissionPage } from './pages/StrategyPermissionPage'
+import { StrategyWebhookConfigPage } from './pages/StrategyWebhookConfigPage'
 import { DebateArenaPage } from './pages/DebateArenaPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
@@ -45,6 +46,7 @@ type Page =
   | 'backtest'
   | 'strategy'
   | 'strategy-permissions'
+  | 'strategy-webhooks'
   | 'strategy-market'
   | 'data'
   | 'debate'
@@ -76,6 +78,8 @@ function App() {
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-permissions' || hash === 'strategy-permissions')
       return 'strategy-permissions'
+    if (path === '/strategy-webhooks' || hash === 'strategy-webhooks')
+      return 'strategy-webhooks'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/data' || hash === 'data') return 'data'
     if (path === '/debate' || hash === 'debate') return 'debate'
@@ -104,6 +108,7 @@ function App() {
       'backtest': '/backtest',
       'strategy': '/strategy',
       'strategy-permissions': '/strategy-permissions',
+      'strategy-webhooks': '/strategy-webhooks',
       'debate': '/debate',
       'faq': '/faq',
       'login': '/login',
@@ -167,6 +172,11 @@ function App() {
         hash === 'strategy-permissions'
       ) {
         setCurrentPage('strategy-permissions')
+      } else if (
+        path === '/strategy-webhooks' ||
+        hash === 'strategy-webhooks'
+      ) {
+        setCurrentPage('strategy-webhooks')
       } else if (path === '/strategy-market' || hash === 'strategy-market') {
         setCurrentPage('strategy-market')
       } else if (path === '/data' || hash === 'data') {
@@ -404,6 +414,7 @@ function App() {
         'backtest': '/backtest',
         'strategy': '/strategy',
         'strategy-permissions': '/strategy-permissions',
+        'strategy-webhooks': '/strategy-webhooks',
         'debate': '/debate',
         'faq': '/faq',
       }
@@ -496,9 +507,14 @@ function App() {
             ) : currentPage === 'strategy-permissions' &&
               user?.role === 'ADMIN' ? (
               <StrategyPermissionPage />
+            ) : currentPage === 'strategy-webhooks' &&
+              user?.role === 'ADMIN' ? (
+              <StrategyWebhookConfigPage />
             ) : currentPage === 'strategy' ? (
               <AITradersPage />
             ) : currentPage === 'strategy-permissions' ? (
+              <AITradersPage />
+            ) : currentPage === 'strategy-webhooks' ? (
               <AITradersPage />
             ) : currentPage === 'debate' ? (
               <DebateArenaPage />

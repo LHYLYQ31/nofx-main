@@ -30,6 +30,8 @@ type Store struct {
 	order                  *OrderStore
 	grid                   *GridStore
 	userStrategyPermission *UserStrategyPermissionStore
+	strategyWebhook        *StrategyWebhookStore
+	signalNotifyUser       *SignalNotifyUserStore
 
 	mu sync.RWMutex
 }
@@ -163,6 +165,12 @@ func (s *Store) initTables() error {
 	}
 	if err := s.UserStrategyPermission().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize user strategy permission tables: %w", err)
+	}
+	if err := s.StrategyWebhook().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize strategy webhook tables: %w", err)
+	}
+	if err := s.SignalNotifyUser().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize signal notify user tables: %w", err)
 	}
 	return nil
 }
@@ -305,6 +313,26 @@ func (s *Store) UserStrategyPermission() *UserStrategyPermissionStore {
 		s.userStrategyPermission = NewUserStrategyPermissionStore(s.gdb)
 	}
 	return s.userStrategyPermission
+}
+
+// StrategyWebhook gets strategy webhook storage
+func (s *Store) StrategyWebhook() *StrategyWebhookStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.strategyWebhook == nil {
+		s.strategyWebhook = NewStrategyWebhookStore(s.gdb)
+	}
+	return s.strategyWebhook
+}
+
+// SignalNotifyUser gets signal notify user storage
+func (s *Store) SignalNotifyUser() *SignalNotifyUserStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.signalNotifyUser == nil {
+		s.signalNotifyUser = NewSignalNotifyUserStore(s.gdb)
+	}
+	return s.signalNotifyUser
 }
 
 // Close closes database connection

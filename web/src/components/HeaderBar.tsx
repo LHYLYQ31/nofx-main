@@ -13,6 +13,7 @@ type Page =
   | 'backtest'
   | 'strategy'
   | 'strategy-permissions'
+  | 'strategy-webhooks'
   | 'strategy-market'
   | 'data'
   | 'debate'
@@ -105,6 +106,7 @@ export default function HeaderBar({
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
+                { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                 { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -124,7 +126,12 @@ export default function HeaderBar({
               }
 
               const visibleTabs = navTabs.filter((tab) => {
-                if ((tab.page === 'strategy' || tab.page === 'strategy-permissions') && user?.role !== 'ADMIN') {
+                if (
+                  (tab.page === 'strategy' ||
+                    tab.page === 'strategy-permissions' ||
+                    tab.page === 'strategy-webhooks') &&
+                  user?.role !== 'ADMIN'
+                ) {
                   return false
                 }
                 return true
@@ -356,6 +363,7 @@ export default function HeaderBar({
                     { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
+                { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                     { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -376,7 +384,9 @@ export default function HeaderBar({
 
                   const visibleTabs = navTabs.filter((tab) => {
                     if (
-                      (tab.page === 'strategy' || tab.page === 'strategy-permissions') &&
+                      (tab.page === 'strategy' ||
+                        tab.page === 'strategy-permissions' ||
+                        tab.page === 'strategy-webhooks') &&
                       user?.role !== 'ADMIN'
                     ) {
                       return false

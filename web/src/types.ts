@@ -292,6 +292,20 @@ export interface BacktestCorrectionPermission {
   showcase_enabled: boolean;
 }
 
+export interface StrategyWebhookItem {
+  strategy_id: string;
+  strategy_name?: string;
+  webhook_url: string;
+  enabled: boolean;
+  updated_at?: string;
+}
+
+export interface SignalNotifyUserItem {
+  email: string;
+  enabled: boolean;
+  updated_at?: string;
+}
+
 export interface BacktestMetaCorrectionPatch {
   label?: string;
   state?: string;

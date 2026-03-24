@@ -56,6 +56,10 @@ type BacktestConfig struct {
 	CheckpointIntervalSeconds int    `json:"checkpoint_interval_seconds,omitempty"`
 	ReplayDecisionDir         string `json:"replay_decision_dir,omitempty"`
 
+	// Runtime only fields (not persisted)
+	RuntimeStore    *store.Store `json:"-"`
+	DiscordUsername string       `json:"-"`
+
 	// Internal: loaded strategy config (set by Manager when StrategyID is provided)
 	loadedStrategy *store.StrategyConfig `json:"-"`
 }

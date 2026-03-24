@@ -21,9 +21,11 @@ type Manager struct {
 	cancels    map[string]context.CancelFunc
 	mcpClient  mcp.AIClient
 	aiResolver AIConfigResolver
+	runtimeCfg RuntimeConfigResolver
 }
 
 type AIConfigResolver func(*BacktestConfig) error
+type RuntimeConfigResolver func(*BacktestConfig) error
 
 func NewManager(defaultClient mcp.AIClient) *Manager {
 	return &Manager{
@@ -40,11 +42,20 @@ func (m *Manager) SetAIResolver(resolver AIConfigResolver) {
 	m.aiResolver = resolver
 }
 
+func (m *Manager) SetRuntimeConfigResolver(resolver RuntimeConfigResolver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.runtimeCfg = resolver
+}
+
 func (m *Manager) Start(ctx context.Context, cfg BacktestConfig) (*Runner, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	if err := m.resolveAIConfig(&cfg); err != nil {
+		return nil, err
+	}
+	if err := m.resolveRuntimeConfig(&cfg); err != nil {
 		return nil, err
 	}
 	if ctx == nil {
@@ -206,6 +217,9 @@ func (m *Manager) Resume(runID string) error {
 		return err
 	}
 	if err := m.resolveAIConfig(&cfgCopy); err != nil {
+		return err
+	}
+	if err := m.resolveRuntimeConfig(&cfgCopy); err != nil {
 		return err
 	}
 
@@ -440,6 +454,16 @@ func (m *Manager) resolveAIConfig(cfg *BacktestConfig) error {
 		if apiKey == "" {
 			return fmt.Errorf("AI configuration missing key and no resolver configured")
 		}
+		return nil
+	}
+	return resolver(cfg)
+}
+
+func (m *Manager) resolveRuntimeConfig(cfg *BacktestConfig) error {
+	m.mu.RLock()
+	resolver := m.runtimeCfg
+	m.mu.RUnlock()
+	if resolver == nil {
 		return nil
 	}
 	return resolver(cfg)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"nofx/config"
 	"nofx/logger"
 	"os"
 	"path/filepath"
@@ -1341,16 +1340,25 @@ func (r *Runner) logDecision(record *store.DecisionRecord) error {
 }
 
 func buildBacktestDiscordNotifier(cfg BacktestConfig) *discordNotifier {
-	globalCfg := config.Get()
-	if !globalCfg.IsBacktestDiscordEnabled() {
+	if cfg.RuntimeStore == nil {
 		return nil
 	}
-	if !globalCfg.IsBacktestDiscordEmailAllowed(cfg.UserEmail) {
+	webhookURL, ok, err := cfg.RuntimeStore.ResolveSignalWebhook(cfg.StrategyID, cfg.UserEmail)
+	if err != nil {
+		logger.Warnf("resolve backtest signal webhook failed run=%s strategy=%s email=%s: %v",
+			cfg.RunID, cfg.StrategyID, cfg.UserEmail, err)
 		return nil
+	}
+	if !ok {
+		return nil
+	}
+	username := strings.TrimSpace(cfg.DiscordUsername)
+	if username == "" {
+		username = "newmoneyclub"
 	}
 	return newDiscordNotifier(
-		globalCfg.BacktestDiscordWebhookURL,
-		globalCfg.BacktestDiscordUsername,
+		webhookURL,
+		username,
 	)
 }
 

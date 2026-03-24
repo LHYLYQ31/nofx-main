@@ -94,6 +94,17 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		resetCodes:      make(map[string]resetCodeEntry),
 	}
 
+	if backtestManager != nil {
+		backtestManager.SetAIResolver(func(cfg *backtest.BacktestConfig) error {
+			return s.resolveBacktestAIConfig(cfg, cfg.UserID)
+		})
+		backtestManager.SetRuntimeConfigResolver(func(cfg *backtest.BacktestConfig) error {
+			cfg.RuntimeStore = st
+			cfg.DiscordUsername = strings.TrimSpace(config.Get().BacktestDiscordUsername)
+			return nil
+		})
+	}
+
 	// Setup routes
 	s.setupRoutes()
 
@@ -243,6 +254,12 @@ func (s *Server) setupRoutes() {
 				admin.PUT("/users/:id/role", s.handleAdminSetUserRole)
 				admin.GET("/users/:id/strategies", s.handleAdminGetUserStrategies)
 				admin.PUT("/users/:id/strategies", s.handleAdminSetUserStrategies)
+				admin.GET("/strategy-webhooks", s.handleAdminListStrategyWebhooks)
+				admin.PUT("/strategy-webhooks", s.handleAdminUpsertStrategyWebhook)
+				admin.DELETE("/strategy-webhooks/:id", s.handleAdminDeleteStrategyWebhook)
+				admin.GET("/signal-notify-users", s.handleAdminListSignalNotifyUsers)
+				admin.PUT("/signal-notify-users", s.handleAdminUpsertSignalNotifyUser)
+				admin.DELETE("/signal-notify-users/:email", s.handleAdminDeleteSignalNotifyUser)
 			}
 		}
 	}

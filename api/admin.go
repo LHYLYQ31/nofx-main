@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"sort"
@@ -156,4 +157,151 @@ func (s *Server) handleAdminSetUserRole(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User role updated"})
+}
+
+func (s *Server) handleAdminListStrategyWebhooks(c *gin.Context) {
+	items, err := s.store.StrategyWebhook().List()
+	if err != nil {
+		SafeInternalError(c, "Failed to list strategy webhooks", err)
+		return
+	}
+
+	strategies, err := s.store.Strategy().ListAll()
+	if err != nil {
+		SafeInternalError(c, "Failed to list strategies", err)
+		return
+	}
+	strategyNameByID := make(map[string]string, len(strategies))
+	for _, st := range strategies {
+		if st == nil {
+			continue
+		}
+		strategyNameByID[st.ID] = strings.TrimSpace(st.Name)
+	}
+
+	resp := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		resp = append(resp, gin.H{
+			"strategy_id":   it.StrategyID,
+			"strategy_name": strategyNameByID[it.StrategyID],
+			"webhook_url":   it.WebhookURL,
+			"enabled":       it.Enabled,
+			"updated_at":    it.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp})
+}
+
+func validateDiscordWebhookURL(url string) error {
+	value := strings.TrimSpace(url)
+	if value == "" {
+		return fmt.Errorf("webhook_url is required")
+	}
+	lower := strings.ToLower(value)
+	if !strings.HasPrefix(lower, "https://discord.com/api/webhooks/") &&
+		!strings.HasPrefix(lower, "https://discordapp.com/api/webhooks/") {
+		return fmt.Errorf("webhook_url must be a Discord webhook URL")
+	}
+	return nil
+}
+
+func (s *Server) handleAdminUpsertStrategyWebhook(c *gin.Context) {
+	var req struct {
+		StrategyID string `json:"strategy_id" binding:"required"`
+		WebhookURL string `json:"webhook_url" binding:"required"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	req.StrategyID = strings.TrimSpace(req.StrategyID)
+	if req.StrategyID == "" {
+		SafeBadRequest(c, "strategy_id is required")
+		return
+	}
+	if _, err := s.store.Strategy().GetByID(req.StrategyID); err != nil {
+		SafeBadRequest(c, "Strategy not found")
+		return
+	}
+	if err := validateDiscordWebhookURL(req.WebhookURL); err != nil {
+		SafeBadRequest(c, err.Error())
+		return
+	}
+	if err := s.store.StrategyWebhook().Upsert(req.StrategyID, req.WebhookURL, req.Enabled); err != nil {
+		SafeInternalError(c, "Failed to save strategy webhook", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Strategy webhook updated"})
+}
+
+func (s *Server) handleAdminDeleteStrategyWebhook(c *gin.Context) {
+	strategyID := strings.TrimSpace(c.Param("id"))
+	if strategyID == "" {
+		SafeBadRequest(c, "strategy_id is required")
+		return
+	}
+	if err := s.store.StrategyWebhook().Delete(strategyID); err != nil {
+		SafeInternalError(c, "Failed to delete strategy webhook", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Strategy webhook deleted"})
+}
+
+func (s *Server) handleAdminListSignalNotifyUsers(c *gin.Context) {
+	items, err := s.store.SignalNotifyUser().List()
+	if err != nil {
+		SafeInternalError(c, "Failed to list signal notify users", err)
+		return
+	}
+	resp := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		resp = append(resp, gin.H{
+			"email":      it.Email,
+			"enabled":    it.Enabled,
+			"updated_at": it.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp})
+}
+
+func (s *Server) handleAdminUpsertSignalNotifyUser(c *gin.Context) {
+	var req struct {
+		Email   string `json:"email" binding:"required"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		SafeBadRequest(c, "email is invalid")
+		return
+	}
+	if err := s.store.SignalNotifyUser().Upsert(email, req.Enabled); err != nil {
+		SafeInternalError(c, "Failed to save notify user", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Notify user updated"})
+}
+
+func (s *Server) handleAdminDeleteSignalNotifyUser(c *gin.Context) {
+	email := strings.ToLower(strings.TrimSpace(c.Param("email")))
+	if email == "" {
+		SafeBadRequest(c, "email is required")
+		return
+	}
+	if err := s.store.SignalNotifyUser().Delete(email); err != nil {
+		SafeInternalError(c, "Failed to delete notify user", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Notify user deleted"})
 }
