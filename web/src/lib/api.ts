@@ -565,6 +565,24 @@ export const api = {
     return handleJSONResponse<BacktestRunMetadata>(res)
   },
 
+  async closeAllBacktestPositions(runId: string): Promise<BacktestRunMetadata> {
+    const res = await fetch(`${API_BASE}/backtest/close-all`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ run_id: runId }),
+    })
+    return handleJSONResponse<BacktestRunMetadata>(res)
+  },
+
+  async closeBacktestPosition(runId: string, symbol: string, side: string): Promise<BacktestRunMetadata> {
+    const res = await fetch(`${API_BASE}/backtest/close-position`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ run_id: runId, symbol, side }),
+    })
+    return handleJSONResponse<BacktestRunMetadata>(res)
+  },
+
   async updateBacktestLabel(
     runId: string,
     label: string

@@ -18,6 +18,7 @@ import { StrategyWebhookConfigPage } from './pages/StrategyWebhookConfigPage'
 import { DebateArenaPage } from './pages/DebateArenaPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
+import { BacktestHomePreviewPage } from './pages/BacktestHomePreviewPage'
 import { LoginRequiredOverlay } from './components/LoginRequiredOverlay'
 import HeaderBar from './components/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
@@ -448,6 +449,9 @@ function App() {
         />
       </div>
     )
+  }
+  if (route === '/backtest-home-preview') {
+    return <BacktestHomePreviewPage />
   }
   // Show landing page for root route
   if (route === '/' || route === '') {

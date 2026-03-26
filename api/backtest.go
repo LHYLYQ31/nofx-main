@@ -30,6 +30,8 @@ func (s *Server) registerBacktestRoutes(router *gin.RouterGroup) {
 	router.POST("/pause", s.handleBacktestPause)
 	router.POST("/resume", s.handleBacktestResume)
 	router.POST("/stop", s.handleBacktestStop)
+	router.POST("/close-all", s.handleBacktestCloseAll)
+	router.POST("/close-position", s.handleBacktestClosePosition)
 	router.POST("/label", s.handleBacktestLabel)
 	router.POST("/delete", s.handleBacktestDelete)
 	router.GET("/status", s.handleBacktestStatus)
@@ -52,6 +54,12 @@ type backtestStartRequest struct {
 
 type runIDRequest struct {
 	RunID string `json:"run_id"`
+}
+
+type runPositionRequest struct {
+	RunID  string `json:"run_id"`
+	Symbol string `json:"symbol"`
+	Side   string `json:"side"`
 }
 
 type labelRequest struct {
@@ -214,6 +222,71 @@ func (s *Server) handleBacktestResume(c *gin.Context) {
 
 func (s *Server) handleBacktestStop(c *gin.Context) {
 	s.handleBacktestControl(c, s.backtestManager.Stop)
+}
+
+func (s *Server) handleBacktestCloseAll(c *gin.Context) {
+	if s.backtestManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
+		return
+	}
+	userID := normalizeUserID(c.GetString("user_id"))
+
+	var req runIDRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	if strings.TrimSpace(req.RunID) == "" {
+		SafeBadRequest(c, "run_id is required")
+		return
+	}
+	if _, err := s.ensureBacktestRunOwnership(req.RunID, userID); writeBacktestAccessError(c, err) {
+		return
+	}
+	if err := s.backtestManager.CloseAllPositions(req.RunID); err != nil {
+		SafeBadRequest(c, SanitizeError(err, "Failed to close all positions"))
+		return
+	}
+	meta, err := s.backtestManager.LoadMetadata(req.RunID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+		return
+	}
+	c.JSON(http.StatusOK, meta)
+}
+
+func (s *Server) handleBacktestClosePosition(c *gin.Context) {
+	if s.backtestManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
+		return
+	}
+	userID := normalizeUserID(c.GetString("user_id"))
+
+	var req runPositionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	req.RunID = strings.TrimSpace(req.RunID)
+	req.Symbol = strings.TrimSpace(req.Symbol)
+	req.Side = strings.ToLower(strings.TrimSpace(req.Side))
+	if req.RunID == "" || req.Symbol == "" || (req.Side != "long" && req.Side != "short") {
+		SafeBadRequest(c, "run_id, symbol and side(long/short) are required")
+		return
+	}
+	if _, err := s.ensureBacktestRunOwnership(req.RunID, userID); writeBacktestAccessError(c, err) {
+		return
+	}
+	if err := s.backtestManager.ClosePosition(req.RunID, req.Symbol, req.Side); err != nil {
+		SafeBadRequest(c, SanitizeError(err, "Failed to close backtest position"))
+		return
+	}
+	meta, err := s.backtestManager.LoadMetadata(req.RunID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+		return
+	}
+	c.JSON(http.StatusOK, meta)
 }
 
 func (s *Server) handleBacktestControl(c *gin.Context, fn func(string) error) {
@@ -1622,7 +1695,9 @@ func (s *Server) hydrateBacktestAIConfig(cfg *backtest.BacktestConfig) error {
 	cfg.AICfg.APIKey = apiKey
 	cfg.AICfg.BaseURL = strings.TrimSpace(model.CustomAPIURL)
 	modelName := strings.TrimSpace(model.CustomModelName)
-	if cfg.AICfg.Model == "" {
+	// If user configured a model name in AI model settings, always prefer it.
+	// If not configured, keep incoming value (possibly empty) and let provider default apply.
+	if modelName != "" {
 		cfg.AICfg.Model = modelName
 	}
 	cfg.AICfg.Model = strings.TrimSpace(cfg.AICfg.Model)

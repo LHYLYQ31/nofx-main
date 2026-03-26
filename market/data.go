@@ -370,7 +370,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
 	// Calculate price changes
-	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data
@@ -1164,6 +1164,12 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data,
 	}
 
 	return data, nil
+}
+
+// BuildTimeframeSeriesFromKlines builds a timeframe indicator series from klines.
+// This is used by backtest/simulation to attach multi-timeframe indicators onto Data.TimeframeData.
+func BuildTimeframeSeriesFromKlines(klines []Kline, timeframe string, count int) *TimeframeSeriesData {
+	return calculateTimeframeSeries(klines, timeframe, count)
 }
 
 func priceChangeFromSeries(series []Kline, duration time.Duration) float64 {

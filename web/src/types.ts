@@ -464,6 +464,7 @@ export interface BacktestStartConfig {
   override_prompt?: boolean;
   cache_ai?: boolean;
   replay_only?: boolean;
+  close_positions_at_end?: boolean;
   checkpoint_interval_bars?: number;
   checkpoint_interval_seconds?: number;
   replay_decision_dir?: string;

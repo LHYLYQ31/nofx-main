@@ -47,6 +47,9 @@ type BacktestConfig struct {
 	OverrideBasePrompt   bool     `json:"override_prompt"`
 	CacheAI              bool     `json:"cache_ai"`
 	ReplayOnly           bool     `json:"replay_only"`
+	// ClosePositionsAtEnd forces a final settlement at backtest completion:
+	// all remaining positions are closed and corresponding close_* trade events are recorded.
+	ClosePositionsAtEnd bool `json:"close_positions_at_end,omitempty"`
 
 	AICfg    AIConfig       `json:"ai"`
 	Leverage LeverageConfig `json:"leverage"`

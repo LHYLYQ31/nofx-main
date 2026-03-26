@@ -591,11 +591,14 @@ function TradeTimeline({
   return (
     <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
       {recentTrades.map((trade, idx) => {
-        const isOpen = trade.action.includes('open')
         const isLong = trade.action.includes('long')
-        const bgColor = isOpen ? 'rgba(14, 203, 129, 0.1)' : 'rgba(246, 70, 93, 0.1)'
-        const borderColor = isOpen ? 'rgba(14, 203, 129, 0.3)' : 'rgba(246, 70, 93, 0.3)'
-        const iconColor = isOpen ? '#0ECB81' : '#F6465D'
+        const isClose = trade.action.includes('close')
+        const isOpen = trade.action.includes('open')
+        const sideColor = isLong ? '#0ECB81' : '#F6465D'
+        const neutralColor = '#F0B90B'
+        const iconColor = isClose ? neutralColor : sideColor
+        const bgColor = isClose ? 'rgba(240, 185, 11, 0.1)' : `${sideColor}1A`
+        const borderColor = isClose ? 'rgba(240, 185, 11, 0.3)' : `${sideColor}4D`
 
         return (
           <motion.div
@@ -643,13 +646,19 @@ function TradeTimeline({
               </div>
             </div>
             <div className="text-right space-y-1">
-              <div
-                className="font-mono font-bold"
-                style={{ color: trade.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}
-              >
-                {trade.realized_pnl >= 0 ? '+' : ''}
-                {trade.realized_pnl.toFixed(2)}
-              </div>
+              {isOpen ? (
+                <div className="font-mono font-bold" style={{ color: '#848E9C' }}>
+                  --
+                </div>
+              ) : (
+                <div
+                  className="font-mono font-bold"
+                  style={{ color: trade.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}
+                >
+                  {trade.realized_pnl >= 0 ? '+' : ''}
+                  {trade.realized_pnl.toFixed(4)}
+                </div>
+              )}
               <div className="text-xs" style={{ color: '#848E9C' }}>
                 USDT
               </div>
@@ -675,10 +684,14 @@ function PositionsDisplay({
   positions,
   language,
   tr,
+  onClosePosition,
+  closingPositionKey,
 }: {
   positions: BacktestPositionStatus[]
   language: string
   tr: (key: string, params?: Record<string, string | number>) => string
+  onClosePosition?: (symbol: string, side: string) => void
+  closingPositionKey?: string | null
 }) {
   void language
   if (!positions || positions.length === 0) {
@@ -724,6 +737,8 @@ function PositionsDisplay({
         {positions.map((pos) => {
           const isLong = pos.side === 'long'
           const pnlColor = pos.unrealized_pnl >= 0 ? '#0ECB81' : '#F6465D'
+          const posKey = `${pos.symbol}:${pos.side}`
+          const closing = closingPositionKey === posKey
 
           return (
             <motion.div
@@ -766,7 +781,21 @@ function PositionsDisplay({
               </div>
 
               <div className="text-right">
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center justify-end gap-2 text-xs">
+                  {onClosePosition && (
+                    <button
+                      onClick={() => onClosePosition(pos.symbol, pos.side)}
+                      disabled={closing}
+                      className="px-1.5 py-0.5 rounded border text-[10px] transition-all disabled:opacity-60"
+                      style={{
+                        borderColor: '#F6465D66',
+                        color: '#F6465D',
+                        background: 'rgba(246, 70, 93, 0.1)',
+                      }}
+                    >
+                      {closing ? '...' : tr('ui.close')}
+                    </button>
+                  )}
                   <span style={{ color: '#848E9C' }}>
                     {tr('ui.entry')}: ${pos.entry_price.toFixed(2)}
                   </span>
@@ -810,6 +839,7 @@ export function BacktestPage() {
   const [selectedRunId, setSelectedRunId] = useState<string>()
   const [compareRunIds, setCompareRunIds] = useState<string[]>([])
   const [isStarting, setIsStarting] = useState(false)
+  const [closingPositionKey, setClosingPositionKey] = useState<string | null>(null)
   const [isCorrectionOpen, setIsCorrectionOpen] = useState(false)
   const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false)
   const [selectedQuickHours, setSelectedQuickHours] = useState<number | null>(72)
@@ -848,6 +878,7 @@ export function BacktestPage() {
     overridePrompt: false,
     cacheAI: true,
     replayOnly: false,
+    closeAtEnd: true,
     aiModelId: '',
     strategyId: '', // Optional: use saved strategy from Strategy Studio
   })
@@ -1052,6 +1083,7 @@ export function BacktestPage() {
         override_prompt: formState.overridePrompt,
         cache_ai: formState.cacheAI,
         replay_only: formState.replayOnly,
+        close_positions_at_end: formState.closeAtEnd,
         ai_model_id: formState.aiModelId,
         leverage: {
           btc_eth_leverage: formState.btcEthLeverage,
@@ -1072,12 +1104,26 @@ export function BacktestPage() {
     }
   }
 
-  const handleControl = async (action: 'pause' | 'resume' | 'stop') => {
+  const handleControl = async (action: 'pause' | 'resume' | 'stop' | 'closeAll') => {
     if (!selectedRunId || isShowcaseMode) return
     try {
+      if (action === 'closeAll') {
+        const confirmed = await confirmToast(
+          language === 'zh'
+            ? '确认手动平掉当前回测的全部持仓？'
+            : 'Close all current positions for this backtest now?',
+          {
+            title: language === 'zh' ? '手动平仓' : 'Manual Close',
+            okText: language === 'zh' ? '确认平仓' : 'Close All',
+            cancelText: tr('ui.cancel'),
+          }
+        )
+        if (!confirmed) return
+      }
       if (action === 'pause') await api.pauseBacktest(selectedRunId)
       if (action === 'resume') await api.resumeBacktest(selectedRunId)
       if (action === 'stop') await api.stopBacktest(selectedRunId)
+      if (action === 'closeAll') await api.closeAllBacktestPositions(selectedRunId)
       setToast({ text: tr('toasts.actionSuccess', { action, id: selectedRunId }), tone: 'success' })
       await refreshMyRuns()
     } catch (error: unknown) {
@@ -1144,6 +1190,41 @@ export function BacktestPage() {
       start: toLocalInput(startDate),
       end: toLocalInput(endDate),
     }))
+  }
+
+  const handleCloseSinglePosition = async (symbol: string, side: string) => {
+    if (!selectedRunId || isShowcaseMode) return
+    const sideLabel = side.toLowerCase() === 'long' ? 'LONG' : 'SHORT'
+    const confirmed = await confirmToast(
+      language === 'zh'
+        ? `确认平仓 ${symbol.replace('USDT', '')} ${sideLabel} 持仓？`
+        : `Close ${symbol} ${sideLabel} position now?`,
+      {
+        title: language === 'zh' ? '手动平仓' : 'Manual Close',
+        okText: tr('ui.close'),
+        cancelText: tr('ui.cancel'),
+      }
+    )
+    if (!confirmed) return
+
+    const key = `${symbol}:${side}`
+    setClosingPositionKey(key)
+    try {
+      await api.closeBacktestPosition(selectedRunId, symbol, side)
+      setToast({
+        text:
+          language === 'zh'
+            ? `${symbol.replace('USDT', '')} ${sideLabel} 已平仓`
+            : `${symbol} ${sideLabel} position closed`,
+        tone: 'success',
+      })
+      await refreshMyRuns()
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : tr('toasts.actionFailed')
+      setToast({ text: errMsg, tone: 'error' })
+    } finally {
+      setClosingPositionKey(null)
+    }
   }
 
   const openTradeCorrectionEditor = (trade: BacktestTradeEvent) => {
@@ -2002,6 +2083,17 @@ export function BacktestPage() {
                             <Pause className="w-4 h-4" style={{ color: '#F0B90B' }} />
                           </button>
                           <button
+                            onClick={() => handleControl('closeAll')}
+                            className="px-2 py-1 rounded-lg transition-all hover:bg-[#2B3139] flex items-center gap-1"
+                            style={{ border: '1px solid #2B3139' }}
+                            title={language === 'zh' ? '手动平仓' : 'Manual Close'}
+                          >
+                            <XCircle className="w-4 h-4" style={{ color: '#FF7A45' }} />
+                            <span className="text-xs" style={{ color: '#FF7A45' }}>
+                              {language === 'zh' ? '平仓' : 'Close'}
+                            </span>
+                          </button>
+                          <button
                             onClick={() => handleControl('stop')}
                             className="p-2 rounded-lg transition-all hover:bg-[#2B3139]"
                             style={{ border: '1px solid #2B3139' }}
@@ -2065,7 +2157,13 @@ export function BacktestPage() {
 
                   {/* Real-time Positions Display */}
                   {status?.positions && status.positions.length > 0 && (
-                    <PositionsDisplay positions={status.positions} language={language} tr={tr} />
+                    <PositionsDisplay
+                      positions={status.positions}
+                      language={language}
+                      tr={tr}
+                      onClosePosition={handleCloseSinglePosition}
+                      closingPositionKey={closingPositionKey}
+                    />
                   )}
                 </div>
 

@@ -280,6 +280,30 @@ func (m *Manager) Stop(runID string) error {
 	return nil
 }
 
+func (m *Manager) CloseAllPositions(runID string) error {
+	runner, ok := m.GetRunner(runID)
+	if !ok {
+		return fmt.Errorf("run %s not found", runID)
+	}
+	if err := runner.CloseAllNow(); err != nil {
+		return err
+	}
+	m.refreshMetadata(runID)
+	return nil
+}
+
+func (m *Manager) ClosePosition(runID, symbol, side string) error {
+	runner, ok := m.GetRunner(runID)
+	if !ok {
+		return fmt.Errorf("run %s not found", runID)
+	}
+	if err := runner.ClosePositionNow(symbol, side); err != nil {
+		return err
+	}
+	m.refreshMetadata(runID)
+	return nil
+}
+
 func (m *Manager) Wait(runID string) error {
 	runner, ok := m.GetRunner(runID)
 	if !ok {

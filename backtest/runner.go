@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"nofx/logger"
 	"os"
 	"path/filepath"
@@ -27,7 +28,44 @@ var (
 const (
 	metricsWriteInterval = 5 * time.Second
 	aiDecisionMaxRetries = 3
+	// Guardrails for dynamic grid recentering (adjust_grid).
+	gridRecenterCooldownCycles = 3
+	gridRecenterMinShiftRatio  = 0.15
 )
+
+// gridPendingOrder stores a simulated grid limit order in backtest mode.
+// It is intentionally isolated from non-grid strategies.
+type gridPendingOrder struct {
+	ID         string
+	Symbol     string
+	Side       string // "buy" or "sell"
+	Intent     string // "open" or "close"
+	CloseSide  string // "long" or "short" when Intent=close
+	Price      float64
+	Quantity   float64
+	LevelIndex int
+	Reasoning  string
+	CreatedAt  int64
+}
+
+type gridRegimeState struct {
+	Mode      string // "range" or "trend"
+	Direction string // "long", "short", "neutral"
+}
+
+// gridStaticRange keeps a stable grid range for a symbol during one backtest run.
+// This prevents boundaries from drifting every cycle and chasing price.
+type gridStaticRange struct {
+	Upper   float64
+	Lower   float64
+	Spacing float64
+}
+
+type manualClosePositionRequest struct {
+	Symbol string
+	Side   string
+	Resp   chan error
+}
 
 // Runner encapsulates the lifecycle of a single backtest run.
 type Runner struct {
@@ -45,10 +83,12 @@ type Runner struct {
 	stateMu sync.RWMutex
 	state   *BacktestState
 
-	pauseCh  chan struct{}
-	resumeCh chan struct{}
-	stopCh   chan struct{}
-	doneCh   chan struct{}
+	pauseCh    chan struct{}
+	resumeCh   chan struct{}
+	stopCh     chan struct{}
+	closeAllCh chan chan error
+	closePosCh chan manualClosePositionRequest
+	doneCh     chan struct{}
 
 	err              error
 	errMu            sync.RWMutex
@@ -65,6 +105,15 @@ type Runner struct {
 	lockStopOnce sync.Once // Ensures lockStop is closed only once
 
 	discordNotifier *discordNotifier
+
+	// Grid backtest state (only used when strategy_type=grid_trading).
+	// Kept separate to ensure classic ai_trading behavior is unchanged.
+	gridPaused            bool
+	gridOrderSeq          int64
+	gridOrders            map[string]*gridPendingOrder
+	gridRanges            map[string]gridStaticRange
+	gridLastRecenterCycle map[string]int
+	gridRegimes           map[string]gridRegimeState
 }
 
 // NewRunner constructs a backtest runner.
@@ -124,21 +173,27 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 	strategyEngine := kernel.NewStrategyEngine(strategyConfig)
 
 	r := &Runner{
-		cfg:            cfg,
-		feed:           feed,
-		account:        account,
-		strategyEngine: strategyEngine,
-		decisionLogDir: dLogDir,
-		mcpClient:      client,
-		status:         RunStateCreated,
-		state:          state,
-		pauseCh:        make(chan struct{}, 1),
-		resumeCh:       make(chan struct{}, 1),
-		stopCh:         make(chan struct{}, 1),
-		doneCh:         make(chan struct{}),
-		createdAt:      createdAt,
-		aiCache:        aiCache,
-		cachePath:      cachePath,
+		cfg:                   cfg,
+		feed:                  feed,
+		account:               account,
+		strategyEngine:        strategyEngine,
+		decisionLogDir:        dLogDir,
+		mcpClient:             client,
+		status:                RunStateCreated,
+		state:                 state,
+		pauseCh:               make(chan struct{}, 1),
+		resumeCh:              make(chan struct{}, 1),
+		stopCh:                make(chan struct{}, 1),
+		closeAllCh:            make(chan chan error, 1),
+		closePosCh:            make(chan manualClosePositionRequest, 1),
+		doneCh:                make(chan struct{}),
+		createdAt:             createdAt,
+		aiCache:               aiCache,
+		cachePath:             cachePath,
+		gridOrders:            make(map[string]*gridPendingOrder),
+		gridRanges:            make(map[string]gridStaticRange),
+		gridLastRecenterCycle: make(map[string]int),
+		gridRegimes:           make(map[string]gridRegimeState),
 	}
 	r.discordNotifier = buildBacktestDiscordNotifier(cfg)
 
@@ -250,11 +305,31 @@ func (r *Runner) loop(ctx context.Context) {
 			r.handlePause()
 			<-r.resumeCh
 			r.resumeFromPause()
+		case resp := <-r.closeAllCh:
+			err := r.closeAllPositions("manual close on backtest run")
+			if err == nil {
+				r.persistMetadata()
+				r.persistMetrics(false)
+			}
+			resp <- err
+		case req := <-r.closePosCh:
+			err := r.closeSinglePosition(req.Symbol, req.Side, "manual close specific position")
+			if err == nil {
+				r.persistMetadata()
+				r.persistMetrics(false)
+			}
+			req.Resp <- err
 		default:
 		}
 
 		err := r.stepOnce()
 		if errors.Is(err, errBacktestCompleted) {
+			if r.cfg.ClosePositionsAtEnd {
+				if settleErr := r.forceCloseAllAtBacktestEnd(); settleErr != nil {
+					r.handleFailure(settleErr)
+					return
+				}
+			}
 			r.handleCompletion()
 			return
 		}
@@ -300,6 +375,22 @@ func (r *Runner) stepOnce() error {
 
 	decisionAttempted := shouldDecide
 
+	// In grid mode, previously placed limit orders are matched against the current bar
+	// before generating new decisions at bar close.
+	if r.isGridBacktestStrategy() {
+		fills, fillLogs, fillErr := r.matchGridOrders(ts, state.DecisionCycle)
+		if fillErr != nil {
+			hadError = true
+			execLog = append(execLog, fmt.Sprintf("grid fill error: %v", fillErr))
+		}
+		if len(fills) > 0 {
+			tradeEvents = append(tradeEvents, fills...)
+		}
+		if len(fillLogs) > 0 {
+			execLog = append(execLog, fillLogs...)
+		}
+	}
+
 	if shouldDecide {
 		ctx, rec, err := r.buildDecisionContext(ts, marketData, multiTF, priceMap, callCount)
 		if err != nil {
@@ -319,11 +410,16 @@ func (r *Runner) stepOnce() error {
 			cacheKey     string
 		)
 		if r.aiCache != nil {
-			if key, err := computeCacheKey(ctx, r.cfg.PromptVariant, ts); err == nil {
+			if key, err := computeCacheKey(ctx, r.cacheVariantKey(), ts); err == nil {
 				cacheKey = key
 				if cached, ok := r.aiCache.Get(cacheKey); ok {
-					fullDecision = cached
-					fromCache = true
+					// Guardrail: grid backtest must not reuse non-grid cached decisions.
+					if r.isGridBacktestStrategy() && !isGridDecisionCache(cached) {
+						fromCache = false
+					} else {
+						fullDecision = cached
+						fromCache = true
+					}
 				} else if r.cfg.ReplayOnly {
 					decisionErr := fmt.Errorf("replay_only enabled but cache miss at %d", ts)
 					record.Success = false
@@ -337,7 +433,7 @@ func (r *Runner) stepOnce() error {
 		}
 
 		if !fromCache {
-			fd, err := r.invokeAIWithRetry(ctx)
+			fd, err := r.invokeAIWithRetry(ctx, ts, marketData, priceMap)
 			if err != nil {
 				decisionAttempted = true
 				hadError = true
@@ -348,8 +444,12 @@ func (r *Runner) stepOnce() error {
 			} else {
 				fullDecision = fd
 				if r.cfg.CacheAI && r.aiCache != nil && cacheKey != "" {
-					if err := r.aiCache.Put(cacheKey, r.cfg.PromptVariant, ts, fullDecision); err != nil {
-						logger.Infof("failed to persist ai cache for %s: %v", r.cfg.RunID, err)
+					if shouldPersistAICacheDecision(fullDecision) {
+						if err := r.aiCache.Put(cacheKey, r.cacheVariantKey(), ts, fullDecision); err != nil {
+							logger.Infof("failed to persist ai cache for %s: %v", r.cfg.RunID, err)
+						}
+					} else {
+						logger.Infof("skip ai cache persist for %s: fallback/invalid AI response", r.cfg.RunID)
 					}
 				}
 			}
@@ -604,17 +704,10 @@ func (r *Runner) fillDecisionRecord(record *store.DecisionRecord, full *kernel.F
 	}
 }
 
-func (r *Runner) invokeAIWithRetry(ctx *kernel.Context) (*kernel.FullDecision, error) {
+func (r *Runner) invokeAIWithRetry(ctx *kernel.Context, ts int64, marketData map[string]*market.Data, priceMap map[string]float64) (*kernel.FullDecision, error) {
 	var lastErr error
 	for attempt := 0; attempt < aiDecisionMaxRetries; attempt++ {
-		// Use GetFullDecisionWithStrategy with the pre-configured strategy engine
-		// This ensures backtest uses the same unified prompt generation as live trading
-		fd, err := kernel.GetFullDecisionWithStrategy(
-			ctx,
-			r.mcpClient,
-			r.strategyEngine,
-			r.cfg.PromptVariant,
-		)
+		fd, err := r.invokeDecision(ctx, ts, marketData, priceMap)
 		if err == nil {
 			return fd, nil
 		}
@@ -623,6 +716,717 @@ func (r *Runner) invokeAIWithRetry(ctx *kernel.Context) (*kernel.FullDecision, e
 		time.Sleep(delay)
 	}
 	return nil, lastErr
+}
+
+func (r *Runner) invokeDecision(ctx *kernel.Context, ts int64, marketData map[string]*market.Data, priceMap map[string]float64) (*kernel.FullDecision, error) {
+	// Grid strategy backtest is isolated in this branch to avoid impacting existing non-grid behavior.
+	cfg := r.strategyEngine.GetConfig()
+	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.StrategyType), "grid_trading") && cfg.GridConfig != nil {
+		gridCtx, gridCfg, err := r.buildGridDecisionContext(ts, marketData, priceMap, cfg)
+		if err != nil {
+			return nil, err
+		}
+		lang := strings.TrimSpace(cfg.Language)
+		if lang == "" {
+			lang = "en"
+		}
+		fd, err := kernel.GetGridDecisions(gridCtx, r.mcpClient, gridCfg, lang)
+		if err != nil {
+			return nil, err
+		}
+		r.normalizeGridDecisionsForBacktest(fd, gridCtx.CurrentPrice, gridCfg)
+		return fd, nil
+	}
+
+	// Default path remains unchanged for ai_trading strategies.
+	return kernel.GetFullDecisionWithStrategy(
+		ctx,
+		r.mcpClient,
+		r.strategyEngine,
+		r.cfg.PromptVariant,
+	)
+}
+
+func (r *Runner) buildGridDecisionContext(ts int64, marketData map[string]*market.Data, priceMap map[string]float64, strategyCfg *store.StrategyConfig) (*kernel.GridContext, *store.GridStrategyConfig, error) {
+	if strategyCfg == nil || strategyCfg.GridConfig == nil {
+		return nil, nil, fmt.Errorf("grid strategy config missing")
+	}
+	if len(marketData) == 0 {
+		return nil, nil, fmt.Errorf("market data is empty")
+	}
+
+	gridCfgCopy := *strategyCfg.GridConfig
+	symbol := strings.ToUpper(strings.TrimSpace(gridCfgCopy.Symbol))
+	if symbol == "" || strings.EqualFold(symbol, "MULTI") {
+		for _, sym := range r.cfg.Symbols {
+			if _, ok := marketData[sym]; ok {
+				symbol = sym
+				break
+			}
+		}
+	}
+	if symbol == "" {
+		for sym := range marketData {
+			symbol = sym
+			break
+		}
+	}
+	mktData, ok := marketData[symbol]
+	if !ok || mktData == nil {
+		return nil, nil, fmt.Errorf("grid symbol market data not found: %s", symbol)
+	}
+
+	gridCfgCopy.Symbol = symbol
+	tfFallbacks := make([]string, 0, len(strategyCfg.Indicators.Klines.SelectedTimeframes)+len(r.cfg.Timeframes))
+	tfSeen := make(map[string]struct{}, len(strategyCfg.Indicators.Klines.SelectedTimeframes)+len(r.cfg.Timeframes))
+	appendTF := func(tf string) {
+		n := strings.ToLower(strings.TrimSpace(tf))
+		if n == "" {
+			return
+		}
+		if _, ok := tfSeen[n]; ok {
+			return
+		}
+		tfSeen[n] = struct{}{}
+		tfFallbacks = append(tfFallbacks, n)
+	}
+	for _, tf := range strategyCfg.Indicators.Klines.SelectedTimeframes {
+		appendTF(tf)
+	}
+	for _, tf := range r.cfg.Timeframes {
+		appendTF(tf)
+	}
+	gridCtx := kernel.BuildGridContextFromMarketData(mktData, &gridCfgCopy, r.cfg.DecisionTimeframe, tfFallbacks)
+	gridCtx.CurrentTime = time.UnixMilli(ts).UTC().Format("2006-01-02 15:04:05 UTC")
+
+	equity, unrealized, _ := r.account.TotalEquity(priceMap)
+	gridCtx.TotalEquity = equity
+	gridCtx.AvailableBalance = r.account.Cash()
+	gridCtx.UnrealizedPnL = unrealized
+	gridCtx.CurrentPosition = r.netPositionForSymbol(symbol)
+
+	snapshot := r.snapshotState()
+	gridCtx.TotalProfit = snapshot.RealizedPnL
+	gridCtx.MaxDrawdown = snapshot.MaxDrawdownPct
+	// Keep a stable grid range per symbol in backtest to avoid boundary drift.
+	r.applyStableGridRange(symbol, gridCtx, &gridCfgCopy)
+	// Inject actual pending-order snapshot so AI can see existing grid state.
+	r.injectGridRuntimeState(symbol, gridCtx, &gridCfgCopy)
+	r.gridRegimes[symbol] = inferGridRegime(gridCtx)
+
+	return gridCtx, &gridCfgCopy, nil
+}
+
+func inferGridRegime(ctx *kernel.GridContext) gridRegimeState {
+	regime := gridRegimeState{
+		Mode:      "range",
+		Direction: "neutral",
+	}
+	if ctx == nil {
+		return regime
+	}
+
+	// Align with grid prompt semantics:
+	// - trending when Bollinger width > 4% or EMA distance > 2%
+	if ctx.BollingerWidth >= 4 || math.Abs(ctx.EMADistance) >= 2 {
+		regime.Mode = "trend"
+		if ctx.EMA20 > ctx.EMA50 {
+			regime.Direction = "long"
+		} else if ctx.EMA20 < ctx.EMA50 {
+			regime.Direction = "short"
+		} else if ctx.CurrentPrice >= ctx.BollingerMiddle {
+			regime.Direction = "long"
+		} else {
+			regime.Direction = "short"
+		}
+	}
+	return regime
+}
+
+func (r *Runner) applyStableGridRange(symbol string, gridCtx *kernel.GridContext, cfg *store.GridStrategyConfig) {
+	if gridCtx == nil || cfg == nil {
+		return
+	}
+	sym := strings.ToUpper(strings.TrimSpace(symbol))
+	if sym == "" {
+		sym = strings.ToUpper(strings.TrimSpace(cfg.Symbol))
+	}
+	if sym == "" {
+		return
+	}
+
+	// Priority:
+	// 1) explicit config bounds
+	// 2) previously initialized run-local bounds
+	// 3) derive once from ATR/current price then keep fixed.
+	if cfg.UpperPrice > 0 && cfg.LowerPrice > 0 && cfg.UpperPrice > cfg.LowerPrice {
+		gridCtx.UpperPrice = cfg.UpperPrice
+		gridCtx.LowerPrice = cfg.LowerPrice
+	} else if fixed, ok := r.gridRanges[sym]; ok && fixed.Upper > fixed.Lower {
+		gridCtx.UpperPrice = fixed.Upper
+		gridCtx.LowerPrice = fixed.Lower
+		gridCtx.GridSpacing = fixed.Spacing
+		return
+	} else if !(gridCtx.UpperPrice > 0 && gridCtx.LowerPrice > 0 && gridCtx.UpperPrice > gridCtx.LowerPrice) {
+		atr := gridCtx.ATR14
+		if atr <= 0 {
+			atr = gridCtx.CurrentPrice * 0.01
+		}
+		multiplier := cfg.ATRMultiplier
+		if multiplier <= 0 {
+			multiplier = 1
+		}
+		span := atr * multiplier
+		if span <= 0 {
+			span = gridCtx.CurrentPrice * 0.02
+		}
+		gridCtx.UpperPrice = gridCtx.CurrentPrice + span
+		gridCtx.LowerPrice = gridCtx.CurrentPrice - span
+	}
+
+	if cfg.GridCount > 1 {
+		gridCtx.GridSpacing = (gridCtx.UpperPrice - gridCtx.LowerPrice) / float64(cfg.GridCount-1)
+	}
+	r.gridRanges[sym] = gridStaticRange{
+		Upper:   gridCtx.UpperPrice,
+		Lower:   gridCtx.LowerPrice,
+		Spacing: gridCtx.GridSpacing,
+	}
+}
+
+func (r *Runner) injectGridRuntimeState(symbol string, gridCtx *kernel.GridContext, cfg *store.GridStrategyConfig) {
+	if gridCtx == nil || cfg == nil {
+		return
+	}
+	sym := strings.ToUpper(strings.TrimSpace(symbol))
+	if sym == "" {
+		sym = strings.ToUpper(strings.TrimSpace(cfg.Symbol))
+	}
+	gridCtx.IsPaused = r.gridPaused
+
+	levels := cfg.GridCount
+	if levels <= 0 {
+		levels = 3
+	}
+	gridLevels := make([]kernel.GridLevelInfo, 0, levels)
+	allocated := 0.0
+	if levels > 0 && cfg.TotalInvestment > 0 {
+		allocated = cfg.TotalInvestment / float64(levels)
+	}
+	for i := 0; i < levels; i++ {
+		price := gridCtx.LowerPrice + float64(i)*gridCtx.GridSpacing
+		side := "buy"
+		if price >= gridCtx.CurrentPrice {
+			side = "sell"
+		}
+		gridLevels = append(gridLevels, kernel.GridLevelInfo{
+			Index:        i,
+			Price:        price,
+			State:        "empty",
+			Side:         side,
+			AllocatedUSD: allocated,
+		})
+	}
+
+	active := 0
+	for _, ord := range r.gridOrders {
+		if ord == nil || !strings.EqualFold(ord.Symbol, sym) {
+			continue
+		}
+		active++
+		idx := ord.LevelIndex
+		if idx < 0 || idx >= len(gridLevels) {
+			idx = r.inferGridLevelIndex(sym, ord.Price, cfg)
+		}
+		if idx < 0 || idx >= len(gridLevels) {
+			continue
+		}
+		lvl := &gridLevels[idx]
+		lvl.State = "pending"
+		lvl.Side = ord.Side
+		lvl.OrderID = ord.ID
+		lvl.OrderQuantity = ord.Quantity
+		if ord.Price > 0 {
+			lvl.Price = ord.Price
+		}
+	}
+
+	gridCtx.Levels = gridLevels
+	gridCtx.ActiveOrderCount = active
+	// Filled level count uses current non-zero position as coarse proxy.
+	if math.Abs(gridCtx.CurrentPosition) > 0 {
+		gridCtx.FilledLevelCount = 1
+	} else {
+		gridCtx.FilledLevelCount = 0
+	}
+}
+
+func (r *Runner) inferGridLevelIndex(symbol string, price float64, cfg *store.GridStrategyConfig) int {
+	if cfg == nil || price <= 0 {
+		return -1
+	}
+	sym := strings.ToUpper(strings.TrimSpace(symbol))
+	fixed, ok := r.gridRanges[sym]
+	if !ok || fixed.Upper <= fixed.Lower {
+		return -1
+	}
+	levels := cfg.GridCount
+	if levels <= 0 {
+		levels = 3
+	}
+	if levels == 1 || fixed.Spacing <= 0 {
+		return 0
+	}
+	idx := int(math.Round((price - fixed.Lower) / fixed.Spacing))
+	if idx < 0 {
+		return 0
+	}
+	if idx >= levels {
+		return levels - 1
+	}
+	return idx
+}
+
+func (r *Runner) normalizeGridDecisionsForBacktest(full *kernel.FullDecision, fallbackPrice float64, gridCfg *store.GridStrategyConfig) {
+	if full == nil {
+		return
+	}
+	for i := range full.Decisions {
+		dec := &full.Decisions[i]
+		dec.Action = strings.ToLower(strings.TrimSpace(dec.Action))
+		if dec.Symbol == "" && gridCfg != nil {
+			dec.Symbol = strings.ToUpper(strings.TrimSpace(gridCfg.Symbol))
+		}
+
+		switch dec.Action {
+		case "place_buy_limit", "place_sell_limit", "open_long", "open_short":
+			r.enrichGridPositionSizing(dec, fallbackPrice, gridCfg)
+		case "cancel_order", "cancel_all_orders", "pause_grid", "resume_grid", "adjust_grid", "close_long", "close_short", "hold", "wait":
+			// Supported as-is.
+		default:
+			dec.Action = "hold"
+			if dec.Reasoning == "" {
+				dec.Reasoning = "unsupported grid action converted to hold in backtest"
+			}
+		}
+
+		if dec.Leverage <= 0 && gridCfg != nil && gridCfg.Leverage > 0 {
+			dec.Leverage = gridCfg.Leverage
+		}
+	}
+}
+
+func (r *Runner) enrichGridPositionSizing(dec *kernel.Decision, fallbackPrice float64, gridCfg *store.GridStrategyConfig) {
+	if dec == nil || dec.PositionSizeUSD > 0 {
+		return
+	}
+	price := fallbackPrice
+	if dec.Price > 0 {
+		price = dec.Price
+	}
+	if dec.Quantity > 0 && price > 0 {
+		dec.PositionSizeUSD = dec.Quantity * price
+	}
+	if dec.PositionSizeUSD > 0 {
+		return
+	}
+	if gridCfg != nil && gridCfg.TotalInvestment > 0 {
+		levels := gridCfg.GridCount
+		if levels <= 0 {
+			levels = 3
+		}
+		alloc := gridCfg.TotalInvestment / float64(levels)
+		if alloc < MinPositionSizeUSD {
+			alloc = MinPositionSizeUSD
+		}
+		dec.PositionSizeUSD = alloc
+	}
+}
+
+func (r *Runner) netPositionForSymbol(symbol string) float64 {
+	target := strings.ToUpper(strings.TrimSpace(symbol))
+	if target == "" {
+		return 0
+	}
+	net := 0.0
+	for _, pos := range r.account.Positions() {
+		if pos == nil || strings.ToUpper(pos.Symbol) != target {
+			continue
+		}
+		if pos.Side == "long" {
+			net += pos.Quantity
+		} else if pos.Side == "short" {
+			net -= pos.Quantity
+		}
+	}
+	return net
+}
+
+func (r *Runner) placeGridOrder(dec kernel.Decision, priceMap map[string]float64) (*gridPendingOrder, string, error) {
+	if dec.Symbol == "" {
+		return nil, "", fmt.Errorf("grid order symbol cannot be empty")
+	}
+	symbol := strings.ToUpper(strings.TrimSpace(dec.Symbol))
+	price := dec.Price
+	if price <= 0 {
+		if priceMap == nil {
+			return nil, "", fmt.Errorf("grid order requires price or market data")
+		}
+		marketPrice, ok := priceMap[symbol]
+		if !ok || marketPrice <= 0 {
+			return nil, "", fmt.Errorf("grid order price unavailable for %s", symbol)
+		}
+		price = marketPrice
+	}
+	qty := dec.Quantity
+	if qty <= 0 {
+		// Fallback to position_size_usd when model omits explicit quantity.
+		if dec.PositionSizeUSD > 0 {
+			qty = dec.PositionSizeUSD / price
+		}
+	}
+	if qty <= 0 {
+		return nil, "", fmt.Errorf("grid order quantity must be > 0")
+	}
+	levelIndex := dec.LevelIndex
+	if levelIndex < 0 {
+		var gridCfg *store.GridStrategyConfig
+		if cfg := r.strategyEngine.GetConfig(); cfg != nil {
+			gridCfg = cfg.GridConfig
+		}
+		levelIndex = r.inferGridLevelIndex(symbol, price, gridCfg)
+	}
+	side, intent, closeSide, skipReason := r.planGridOrder(symbol, dec.Action)
+	if skipReason != "" {
+		return nil, skipReason, nil
+	}
+
+	order := &gridPendingOrder{
+		ID:         r.gridOrderID(dec, symbol, levelIndex),
+		Symbol:     symbol,
+		Side:       side,
+		Intent:     intent,
+		CloseSide:  closeSide,
+		Price:      price,
+		Quantity:   qty,
+		LevelIndex: levelIndex,
+		Reasoning:  strings.TrimSpace(dec.Reasoning),
+		CreatedAt:  time.Now().UTC().UnixMilli(),
+	}
+	// Keep existing pending order by same ID to avoid churn/overwriting every cycle.
+	// Grid updates should be explicit via cancel_* then place_*.
+	if existing, ok := r.gridOrders[order.ID]; ok && existing != nil {
+		return existing, "", nil
+	}
+	r.gridOrders[order.ID] = order
+	return order, "", nil
+}
+
+func (r *Runner) planGridOrder(symbol, action string) (side, intent, closeSide, skipReason string) {
+	side = mapGridOrderSide(action)
+	intent = "open"
+	closeSide = ""
+
+	regime, ok := r.gridRegimes[strings.ToUpper(strings.TrimSpace(symbol))]
+	if !ok || regime.Mode != "trend" {
+		return side, intent, closeSide, ""
+	}
+
+	switch regime.Direction {
+	case "long":
+		// Trend-long mode: buy can open/add long; sell can only close long.
+		if side == "buy" {
+			return "buy", "open", "", ""
+		}
+		if r.currentSideQuantity(symbol, "long") <= 0 {
+			return "", "", "", "trend-long: skip sell limit (no long position to close)"
+		}
+		return "sell", "close", "long", ""
+	case "short":
+		// Trend-short mode: sell can open/add short; buy can only close short.
+		if side == "sell" {
+			return "sell", "open", "", ""
+		}
+		if r.currentSideQuantity(symbol, "short") <= 0 {
+			return "", "", "", "trend-short: skip buy limit (no short position to close)"
+		}
+		return "buy", "close", "short", ""
+	default:
+		return side, intent, closeSide, ""
+	}
+}
+
+func (r *Runner) gridOrderID(dec kernel.Decision, symbol string, level int) string {
+	if strings.TrimSpace(dec.OrderID) != "" {
+		return strings.TrimSpace(dec.OrderID)
+	}
+	side := mapGridOrderSide(dec.Action)
+	// Use a stable key per symbol-side-level so newer AI decisions update prior pending orders.
+	if level >= 0 {
+		return fmt.Sprintf("%s:%s:L%d", strings.ToUpper(strings.TrimSpace(symbol)), side, level)
+	}
+	r.gridOrderSeq++
+	return fmt.Sprintf("%s:%s:auto:%d", strings.ToUpper(strings.TrimSpace(symbol)), side, r.gridOrderSeq)
+}
+
+func mapGridOrderSide(action string) string {
+	if strings.EqualFold(strings.TrimSpace(action), "place_sell_limit") {
+		return "sell"
+	}
+	return "buy"
+}
+
+func (r *Runner) cancelGridOrder(dec kernel.Decision) bool {
+	if strings.TrimSpace(dec.OrderID) != "" {
+		id := strings.TrimSpace(dec.OrderID)
+		if _, ok := r.gridOrders[id]; ok {
+			delete(r.gridOrders, id)
+			return true
+		}
+		return false
+	}
+
+	side := mapGridOrderSide(dec.Action)
+	if dec.Action == "cancel_order" && dec.LevelIndex >= 0 {
+		id := fmt.Sprintf("%s:%s:L%d", strings.ToUpper(strings.TrimSpace(dec.Symbol)), side, dec.LevelIndex)
+		if _, ok := r.gridOrders[id]; ok {
+			delete(r.gridOrders, id)
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runner) cancelAllGridOrders(symbol string) int {
+	target := strings.ToUpper(strings.TrimSpace(symbol))
+	removed := 0
+	for id, ord := range r.gridOrders {
+		if ord == nil {
+			delete(r.gridOrders, id)
+			continue
+		}
+		if target == "" || strings.EqualFold(target, "ALL") || ord.Symbol == target {
+			delete(r.gridOrders, id)
+			removed++
+		}
+	}
+	return removed
+}
+
+// recenterGridRange applies dynamic grid recentering in backtest:
+// 1) cancel pending orders of the symbol
+// 2) keep existing positions unchanged
+// 3) rebuild boundaries around a new center (usually current price)
+// with threshold + cooldown guardrails to avoid frequent rebuild churn.
+func (r *Runner) recenterGridRange(dec kernel.Decision, priceMap map[string]float64, cycle int) (bool, string, error) {
+	symbol := strings.ToUpper(strings.TrimSpace(dec.Symbol))
+	if symbol == "" {
+		return false, "", fmt.Errorf("adjust_grid requires symbol")
+	}
+	if priceMap == nil {
+		return false, "", fmt.Errorf("adjust_grid requires market price map")
+	}
+	currentPrice, ok := priceMap[symbol]
+	if !ok || currentPrice <= 0 {
+		return false, "", fmt.Errorf("adjust_grid price unavailable for %s", symbol)
+	}
+
+	rng, ok := r.gridRanges[symbol]
+	if !ok || rng.Upper <= rng.Lower {
+		return false, "adjust_grid skipped: grid range not initialized", nil
+	}
+	width := rng.Upper - rng.Lower
+	if width <= 0 {
+		return false, "adjust_grid skipped: invalid range width", nil
+	}
+
+	targetCenter := currentPrice
+	// Optional: if AI provides price on adjust_grid, treat it as desired center.
+	if dec.Price > 0 {
+		targetCenter = dec.Price
+	}
+	oldCenter := (rng.Upper + rng.Lower) / 2
+	shift := math.Abs(targetCenter - oldCenter)
+
+	minShift := math.Max(rng.Spacing*0.75, width*gridRecenterMinShiftRatio)
+	if minShift <= 0 {
+		minShift = currentPrice * 0.0015
+	}
+	if shift < minShift {
+		return false, fmt.Sprintf("adjust_grid skipped: shift %.4f < threshold %.4f", shift, minShift), nil
+	}
+
+	if last, ok := r.gridLastRecenterCycle[symbol]; ok {
+		if cycle-last < gridRecenterCooldownCycles {
+			return false, fmt.Sprintf("adjust_grid cooldown: %d/%d cycles", cycle-last, gridRecenterCooldownCycles), nil
+		}
+	}
+
+	half := width / 2
+	newLower := targetCenter - half
+	newUpper := targetCenter + half
+	if newUpper <= newLower {
+		return false, "adjust_grid skipped: computed invalid range", nil
+	}
+
+	levels := 3
+	if cfg := r.strategyEngine.GetConfig(); cfg != nil && cfg.GridConfig != nil && cfg.GridConfig.GridCount > 0 {
+		levels = cfg.GridConfig.GridCount
+	}
+	newSpacing := rng.Spacing
+	if levels > 1 {
+		newSpacing = (newUpper - newLower) / float64(levels-1)
+	}
+
+	cancelled := r.cancelAllGridOrders(symbol)
+	r.gridRanges[symbol] = gridStaticRange{
+		Upper:   newUpper,
+		Lower:   newLower,
+		Spacing: newSpacing,
+	}
+	r.gridLastRecenterCycle[symbol] = cycle
+
+	return true, fmt.Sprintf(
+		"grid recentered %.4f-%.4f -> %.4f-%.4f; cancelled %d pending",
+		rng.Lower, rng.Upper, newLower, newUpper, cancelled,
+	), nil
+}
+
+func (r *Runner) matchGridOrders(ts int64, cycle int) ([]TradeEvent, []string, error) {
+	if len(r.gridOrders) == 0 || r.gridPaused {
+		return nil, nil, nil
+	}
+
+	events := make([]TradeEvent, 0)
+	logs := make([]string, 0)
+
+	for id, ord := range r.gridOrders {
+		if ord == nil {
+			delete(r.gridOrders, id)
+			continue
+		}
+		curr, _ := r.feed.decisionBarSnapshot(ord.Symbol, ts)
+		if curr == nil {
+			continue
+		}
+
+		triggered := false
+		if ord.Side == "buy" && curr.Low <= ord.Price {
+			triggered = true
+		}
+		if ord.Side == "sell" && curr.High >= ord.Price {
+			triggered = true
+		}
+		if !triggered {
+			continue
+		}
+
+		delete(r.gridOrders, id)
+		if strings.EqualFold(ord.Intent, "close") {
+			closeSide := strings.ToLower(strings.TrimSpace(ord.CloseSide))
+			if closeSide == "" {
+				if ord.Side == "sell" {
+					closeSide = "long"
+				} else {
+					closeSide = "short"
+				}
+			}
+			available := r.currentSideQuantity(ord.Symbol, closeSide)
+			qty := ord.Quantity
+			if qty > available {
+				qty = available
+			}
+			if qty <= 0 {
+				logs = append(logs, fmt.Sprintf("grid order %s skipped close: no %s position", id, closeSide))
+				continue
+			}
+
+			realized, fee, execPrice, err := r.account.Close(ord.Symbol, closeSide, qty, ord.Price)
+			if err != nil {
+				logs = append(logs, fmt.Sprintf("grid order %s rejected on close fill: %v", id, err))
+				continue
+			}
+
+			action := "close_long"
+			if closeSide == "short" {
+				action = "close_short"
+			}
+			positionAfter := r.currentSideQuantity(ord.Symbol, closeSide)
+			slippage := execPrice - ord.Price
+			if ord.Side == "buy" {
+				slippage = ord.Price - execPrice
+			}
+
+			evt := TradeEvent{
+				Timestamp:     ts,
+				Symbol:        ord.Symbol,
+				Action:        action,
+				Side:          closeSide,
+				Reasoning:     ord.Reasoning,
+				Quantity:      qty,
+				Price:         execPrice,
+				Fee:           fee,
+				Slippage:      slippage,
+				OrderValue:    execPrice * qty,
+				RealizedPnL:   realized,
+				Leverage:      r.gridLeverageForSymbol(ord.Symbol),
+				Cycle:         cycle,
+				PositionAfter: positionAfter,
+				Note:          fmt.Sprintf("filled grid close %s limit @ %.4f", ord.Side, ord.Price),
+			}
+			events = append(events, evt)
+			logs = append(logs, fmt.Sprintf("grid order %s filled close_%s %.4f @ %.4f", id, closeSide, qty, execPrice))
+			continue
+		}
+
+		side := "long"
+		action := "open_long"
+		if ord.Side == "sell" {
+			side = "short"
+			action = "open_short"
+		}
+		leverage := r.gridLeverageForSymbol(ord.Symbol)
+		pos, fee, execPrice, err := r.account.Open(ord.Symbol, side, ord.Quantity, leverage, ord.Price, ts)
+		if err != nil {
+			logs = append(logs, fmt.Sprintf("grid order %s rejected on fill: %v", id, err))
+			continue
+		}
+
+		slippage := execPrice - ord.Price
+		if side == "short" {
+			slippage = ord.Price - execPrice
+		}
+
+		evt := TradeEvent{
+			Timestamp:     ts,
+			Symbol:        ord.Symbol,
+			Action:        action,
+			Side:          side,
+			Reasoning:     ord.Reasoning,
+			Quantity:      ord.Quantity,
+			Price:         execPrice,
+			Fee:           fee,
+			Slippage:      slippage,
+			OrderValue:    execPrice * ord.Quantity,
+			RealizedPnL:   0,
+			Leverage:      pos.Leverage,
+			Cycle:         cycle,
+			PositionAfter: pos.Quantity,
+			Note:          fmt.Sprintf("filled grid %s limit @ %.4f", ord.Side, ord.Price),
+		}
+		events = append(events, evt)
+		logs = append(logs, fmt.Sprintf("grid order %s filled %s %.4f @ %.4f", id, side, ord.Quantity, execPrice))
+	}
+
+	return events, logs, nil
+}
+
+func (r *Runner) gridLeverageForSymbol(symbol string) int {
+	cfg := r.strategyEngine.GetConfig()
+	if cfg != nil && cfg.GridConfig != nil && cfg.GridConfig.Leverage > 0 {
+		return r.resolveLeverage(cfg.GridConfig.Leverage, symbol)
+	}
+	return r.resolveLeverage(0, symbol)
 }
 
 func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float64, ts int64, cycle int) (store.DecisionAction, []TradeEvent, string, error) {
@@ -648,6 +1452,44 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 	switch dec.Action {
 	case "hold", "wait":
 		return actionRecord, nil, fmt.Sprintf("hold position: %s", dec.Action), nil
+	case "pause_grid":
+		r.gridPaused = true
+		return actionRecord, nil, "grid paused", nil
+	case "resume_grid":
+		r.gridPaused = false
+		return actionRecord, nil, "grid resumed", nil
+	case "cancel_all_orders":
+		cancelled := r.cancelAllGridOrders(symbol)
+		return actionRecord, nil, fmt.Sprintf("cancelled %d grid orders", cancelled), nil
+	case "cancel_order":
+		removed := r.cancelGridOrder(dec)
+		if removed {
+			return actionRecord, nil, "grid order cancelled", nil
+		}
+		return actionRecord, nil, "grid order not found", nil
+	case "adjust_grid":
+		_, msg, err := r.recenterGridRange(dec, priceMap, cycle)
+		if err != nil {
+			return actionRecord, nil, "", err
+		}
+		return actionRecord, nil, msg, nil
+	case "place_buy_limit", "place_sell_limit":
+		if r.gridPaused {
+			return actionRecord, nil, "grid paused; skip placing order", nil
+		}
+		order, skipReason, err := r.placeGridOrder(dec, priceMap)
+		if err != nil {
+			return actionRecord, nil, "", err
+		}
+		if order == nil {
+			if skipReason == "" {
+				skipReason = "grid order skipped"
+			}
+			return actionRecord, nil, skipReason, nil
+		}
+		actionRecord.Quantity = order.Quantity
+		actionRecord.Price = order.Price
+		return actionRecord, nil, fmt.Sprintf("grid %s limit order placed", order.Intent), nil
 	}
 
 	if priceMap == nil {
@@ -659,11 +1501,15 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 		return actionRecord, nil, "", fmt.Errorf("price unavailable for %s (found=%v, price=%.4f)", symbol, ok, basePrice)
 	}
 	fillPrice := r.executionPrice(symbol, basePrice, ts)
+	isGridMode := r.isGridBacktestStrategy()
 
 	switch dec.Action {
 	case "open_long":
-		qty := r.determineQuantity(dec, basePrice)
+		qty := r.determineOpenQuantity(dec, "long", basePrice, isGridMode)
 		if qty <= 0 {
+			if isGridMode {
+				return actionRecord, nil, "grid long target already satisfied or insufficient free margin", nil
+			}
 			return actionRecord, nil, "", fmt.Errorf("invalid qty")
 		}
 		pos, fee, execPrice, err := r.account.Open(symbol, "long", qty, usedLeverage, fillPrice, ts)
@@ -694,8 +1540,11 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 		return actionRecord, []TradeEvent{trade}, "", nil
 
 	case "open_short":
-		qty := r.determineQuantity(dec, basePrice)
+		qty := r.determineOpenQuantity(dec, "short", basePrice, isGridMode)
 		if qty <= 0 {
+			if isGridMode {
+				return actionRecord, nil, "grid short target already satisfied or insufficient free margin", nil
+			}
 			return actionRecord, nil, "", fmt.Errorf("invalid qty")
 		}
 		pos, fee, execPrice, err := r.account.Open(symbol, "short", qty, usedLeverage, fillPrice, ts)
@@ -794,6 +1643,104 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 	default:
 		return actionRecord, nil, "", fmt.Errorf("unsupported action %s", dec.Action)
 	}
+}
+
+func (r *Runner) isGridBacktestStrategy() bool {
+	cfg := r.strategyEngine.GetConfig()
+	return cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.StrategyType), "grid_trading") && cfg.GridConfig != nil
+}
+
+func (r *Runner) cacheVariantKey() string {
+	cfg := r.strategyEngine.GetConfig()
+	if cfg == nil {
+		return r.cfg.PromptVariant
+	}
+	scope := strings.ToLower(strings.TrimSpace(cfg.StrategyType))
+	if scope == "" {
+		scope = "ai_trading"
+	}
+	gridSymbol := ""
+	if cfg.GridConfig != nil {
+		gridSymbol = strings.ToUpper(strings.TrimSpace(cfg.GridConfig.Symbol))
+	}
+	// Add strategy scope to prevent cross-strategy cache pollution.
+	return fmt.Sprintf("%s|scope:%s|grid:%s|strategy:%s", r.cfg.PromptVariant, scope, gridSymbol, strings.TrimSpace(r.cfg.StrategyID))
+}
+
+func isGridDecisionCache(fd *kernel.FullDecision) bool {
+	if fd == nil {
+		return false
+	}
+	sp := strings.ToLower(fd.SystemPrompt)
+	if strings.Contains(sp, "grid trading ai") || strings.Contains(sp, "网格交易ai") {
+		return true
+	}
+	for _, d := range fd.Decisions {
+		a := strings.ToLower(strings.TrimSpace(d.Action))
+		if a == "place_buy_limit" || a == "place_sell_limit" || a == "pause_grid" || a == "resume_grid" {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldPersistAICacheDecision(fd *kernel.FullDecision) bool {
+	if fd == nil {
+		return false
+	}
+	if len(fd.Decisions) == 0 {
+		return false
+	}
+	// Do not cache parser fallback decisions; they may mask transient model errors
+	// and should not poison future replay runs.
+	if len(fd.Decisions) == 1 {
+		d := fd.Decisions[0]
+		if strings.EqualFold(strings.TrimSpace(d.Action), "hold") &&
+			strings.Contains(strings.ToLower(d.Reasoning), "failed to parse ai response") {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Runner) determineOpenQuantity(dec kernel.Decision, side string, price float64, isGridMode bool) float64 {
+	affordable := r.determineQuantity(dec, price)
+	if affordable <= 0 {
+		return 0
+	}
+	if !isGridMode {
+		return affordable
+	}
+
+	// In grid mode we treat AI quantity as target exposure for this side, not perpetual add-on.
+	if dec.Quantity > 0 {
+		existing := r.currentSideQuantity(dec.Symbol, side)
+		delta := dec.Quantity - existing
+		if delta <= 0 {
+			return 0
+		}
+		if delta > affordable {
+			return affordable
+		}
+		return delta
+	}
+
+	return affordable
+}
+
+func (r *Runner) currentSideQuantity(symbol, side string) float64 {
+	targetSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	targetSide := strings.ToLower(strings.TrimSpace(side))
+	total := 0.0
+	for _, pos := range r.account.Positions() {
+		if pos == nil {
+			continue
+		}
+		if strings.ToUpper(pos.Symbol) == targetSymbol && strings.ToLower(pos.Side) == targetSide {
+			total += pos.Quantity
+		}
+	}
+	return total
 }
 
 // MinPositionSizeUSD is the minimum position size in USD to avoid dust positions
@@ -1135,6 +2082,240 @@ func (r *Runner) shouldTriggerDecision(barIndex int) bool {
 	return barIndex%r.cfg.DecisionCadenceNBars == 0
 }
 
+// forceCloseAllAtBacktestEnd settles all remaining positions at backtest completion.
+// This is opt-in via BacktestConfig.ClosePositionsAtEnd to avoid changing default behavior.
+func (r *Runner) forceCloseAllAtBacktestEnd() error {
+	return r.closeAllPositions("forced close on backtest completion")
+}
+
+func (r *Runner) closeAllPositions(note string) error {
+	positions := append([]*position(nil), r.account.Positions()...)
+	if len(positions) == 0 {
+		return nil
+	}
+
+	snapshot := r.snapshotState()
+	ts := snapshot.BarTimestamp
+	if ts <= 0 && r.feed.DecisionBarCount() > 0 {
+		ts = r.feed.DecisionTimestamp(r.feed.DecisionBarCount() - 1)
+	}
+	cycle := snapshot.DecisionCycle
+
+	priceMap := make(map[string]float64, len(positions))
+	if ts > 0 {
+		if marketData, _, err := r.feed.BuildMarketData(ts); err == nil {
+			for symbol, data := range marketData {
+				if data != nil && data.CurrentPrice > 0 {
+					priceMap[symbol] = data.CurrentPrice
+				}
+			}
+		}
+	}
+
+	events := make([]TradeEvent, 0, len(positions))
+	for _, pos := range positions {
+		if pos == nil || pos.Quantity <= 0 {
+			continue
+		}
+		mark := priceMap[pos.Symbol]
+		if mark <= 0 {
+			mark = pos.EntryPrice
+		}
+		execRefPrice := r.executionPrice(pos.Symbol, mark, ts)
+		realized, fee, execPrice, err := r.account.Close(pos.Symbol, pos.Side, pos.Quantity, execRefPrice)
+		if err != nil {
+			return fmt.Errorf("final settlement close %s %s failed: %w", pos.Symbol, pos.Side, err)
+		}
+
+		action := "close_long"
+		slippage := mark - execPrice
+		if pos.Side == "short" {
+			action = "close_short"
+			slippage = execPrice - mark
+		}
+
+		events = append(events, TradeEvent{
+			Timestamp:     ts,
+			Symbol:        pos.Symbol,
+			Action:        action,
+			Side:          pos.Side,
+			Reasoning:     "forced settlement at backtest end",
+			Quantity:      pos.Quantity,
+			Price:         execPrice,
+			Fee:           fee,
+			Slippage:      slippage,
+			OrderValue:    execPrice * pos.Quantity,
+			RealizedPnL:   realized - fee,
+			Leverage:      pos.Leverage,
+			Cycle:         cycle,
+			PositionAfter: 0,
+			Note:          note,
+		})
+	}
+
+	if len(events) == 0 {
+		return nil
+	}
+
+	for _, evt := range events {
+		if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
+			return err
+		}
+		r.notifyTradeSignal(evt, snapshot.Equity)
+	}
+
+	equity, unrealized, _ := r.account.TotalEquity(priceMap)
+	r.stateMu.Lock()
+	r.state.Cash = r.account.Cash()
+	r.state.Equity = equity
+	r.state.UnrealizedPnL = unrealized
+	r.state.RealizedPnL = r.account.RealizedPnL()
+	r.state.Positions = make(map[string]PositionSnapshot)
+	r.state.LastUpdate = time.Now().UTC()
+	r.stateMu.Unlock()
+
+	finalSnapshot := r.snapshotState()
+	drawdownPct := 0.0
+	if finalSnapshot.MaxEquity > 0 {
+		drawdownPct = ((finalSnapshot.MaxEquity - finalSnapshot.Equity) / finalSnapshot.MaxEquity) * 100
+	}
+	// Write one extra equity point to reflect post-settlement account state.
+	if err := appendEquityPoint(r.cfg.RunID, EquityPoint{
+		Timestamp:   ts,
+		Equity:      finalSnapshot.Equity,
+		Available:   finalSnapshot.Cash,
+		PnL:         finalSnapshot.Equity - r.account.InitialBalance(),
+		PnLPct:      ((finalSnapshot.Equity - r.account.InitialBalance()) / r.account.InitialBalance()) * 100,
+		DrawdownPct: drawdownPct,
+		Cycle:       finalSnapshot.DecisionCycle,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *Runner) closeSinglePosition(symbol, side, note string) error {
+	targetSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	targetSide := strings.ToLower(strings.TrimSpace(side))
+	if targetSymbol == "" {
+		return fmt.Errorf("symbol is required")
+	}
+	if targetSide != "long" && targetSide != "short" {
+		return fmt.Errorf("side must be long or short")
+	}
+
+	positions := append([]*position(nil), r.account.Positions()...)
+	var target *position
+	for _, pos := range positions {
+		if pos == nil || pos.Quantity <= 0 {
+			continue
+		}
+		if strings.EqualFold(pos.Symbol, targetSymbol) && strings.EqualFold(pos.Side, targetSide) {
+			target = pos
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("no active %s position for %s", targetSide, targetSymbol)
+	}
+
+	snapshot := r.snapshotState()
+	ts := snapshot.BarTimestamp
+	if ts <= 0 && r.feed.DecisionBarCount() > 0 {
+		ts = r.feed.DecisionTimestamp(r.feed.DecisionBarCount() - 1)
+	}
+	cycle := snapshot.DecisionCycle
+
+	priceMap := make(map[string]float64, 1)
+	if ts > 0 {
+		if marketData, _, err := r.feed.BuildMarketData(ts); err == nil {
+			if data := marketData[targetSymbol]; data != nil && data.CurrentPrice > 0 {
+				priceMap[targetSymbol] = data.CurrentPrice
+			}
+		}
+	}
+	mark := priceMap[targetSymbol]
+	if mark <= 0 {
+		mark = target.EntryPrice
+	}
+	closeQty := target.Quantity
+	execRefPrice := r.executionPrice(target.Symbol, mark, ts)
+	realized, fee, execPrice, err := r.account.Close(target.Symbol, target.Side, closeQty, execRefPrice)
+	if err != nil {
+		return fmt.Errorf("manual close %s %s failed: %w", target.Symbol, target.Side, err)
+	}
+
+	action := "close_long"
+	slippage := mark - execPrice
+	if target.Side == "short" {
+		action = "close_short"
+		slippage = execPrice - mark
+	}
+
+	evt := TradeEvent{
+		Timestamp:     ts,
+		Symbol:        target.Symbol,
+		Action:        action,
+		Side:          target.Side,
+		Reasoning:     note,
+		Quantity:      closeQty,
+		Price:         execPrice,
+		Fee:           fee,
+		Slippage:      slippage,
+		OrderValue:    execPrice * closeQty,
+		RealizedPnL:   realized - fee,
+		Leverage:      target.Leverage,
+		Cycle:         cycle,
+		PositionAfter: 0,
+		Note:          note,
+	}
+	if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
+		return err
+	}
+	r.notifyTradeSignal(evt, snapshot.Equity)
+
+	equity, unrealized, _ := r.account.TotalEquity(priceMap)
+	r.stateMu.Lock()
+	r.state.Cash = r.account.Cash()
+	r.state.Equity = equity
+	r.state.UnrealizedPnL = unrealized
+	r.state.RealizedPnL = r.account.RealizedPnL()
+	positionsMap := make(map[string]PositionSnapshot)
+	for _, pos := range r.account.Positions() {
+		key := fmt.Sprintf("%s:%s", pos.Symbol, pos.Side)
+		positionsMap[key] = PositionSnapshot{
+			Symbol:           pos.Symbol,
+			Side:             pos.Side,
+			Quantity:         pos.Quantity,
+			AvgPrice:         pos.EntryPrice,
+			Leverage:         pos.Leverage,
+			LiquidationPrice: pos.LiquidationPrice,
+			MarginUsed:       pos.Margin,
+			OpenTime:         pos.OpenTime,
+			AccumulatedFee:   pos.AccumulatedFee,
+		}
+	}
+	r.state.Positions = positionsMap
+	r.state.LastUpdate = time.Now().UTC()
+	r.stateMu.Unlock()
+
+	finalSnapshot := r.snapshotState()
+	drawdownPct := 0.0
+	if finalSnapshot.MaxEquity > 0 {
+		drawdownPct = ((finalSnapshot.MaxEquity - finalSnapshot.Equity) / finalSnapshot.MaxEquity) * 100
+	}
+	return appendEquityPoint(r.cfg.RunID, EquityPoint{
+		Timestamp:   ts,
+		Equity:      finalSnapshot.Equity,
+		Available:   finalSnapshot.Cash,
+		PnL:         finalSnapshot.Equity - r.account.InitialBalance(),
+		PnLPct:      ((finalSnapshot.Equity - r.account.InitialBalance()) / r.account.InitialBalance()) * 100,
+		DrawdownPct: drawdownPct,
+		Cycle:       finalSnapshot.DecisionCycle,
+	})
+}
+
 func (r *Runner) handleStop(reason error) {
 	r.forceCheckpoint()
 	if reason != nil {
@@ -1216,6 +2397,49 @@ func (r *Runner) Resume() {
 	select {
 	case r.resumeCh <- struct{}{}:
 	default:
+	}
+}
+
+// CloseAllNow requests manual settlement of all current positions.
+// The backtest run keeps running after settlement.
+func (r *Runner) CloseAllNow() error {
+	if r.Status() != RunStateRunning {
+		return fmt.Errorf("manual close requires running state")
+	}
+	resp := make(chan error, 1)
+	select {
+	case r.closeAllCh <- resp:
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("manual close request timeout")
+	}
+	select {
+	case err := <-resp:
+		return err
+	case <-time.After(180 * time.Second):
+		return fmt.Errorf("manual close execution timeout")
+	}
+}
+
+// ClosePositionNow requests manual settlement for one active position.
+func (r *Runner) ClosePositionNow(symbol, side string) error {
+	if r.Status() != RunStateRunning {
+		return fmt.Errorf("manual close requires running state")
+	}
+	req := manualClosePositionRequest{
+		Symbol: symbol,
+		Side:   side,
+		Resp:   make(chan error, 1),
+	}
+	select {
+	case r.closePosCh <- req:
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("manual close request timeout")
+	}
+	select {
+	case err := <-req.Resp:
+		return err
+	case <-time.After(180 * time.Second):
+		return fmt.Errorf("manual close execution timeout")
 	}
 }
 

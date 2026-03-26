@@ -177,6 +177,20 @@ func (df *DataFeed) BuildMarketData(ts int64) (map[string]*market.Data, map[stri
 		if _, ok := perTF[df.primaryTF]; !ok {
 			return nil, nil, fmt.Errorf("no primary data for %s at %d", symbol, ts)
 		}
+		// Backtest-local multi-timeframe wiring:
+		// Build explicit TimeframeData so downstream grid prompt can select indicators
+		// by decision timeframe / selected timeframe instead of falling back to zeros.
+		primaryData := result[symbol]
+		if primaryData != nil {
+			primaryData.TimeframeData = make(map[string]*market.TimeframeSeriesData, len(df.timeframes))
+			for _, tf := range df.timeframes {
+				series := df.sliceUpTo(symbol, tf, ts)
+				if len(series) == 0 {
+					continue
+				}
+				primaryData.TimeframeData[tf] = market.BuildTimeframeSeriesFromKlines(series, tf, len(series))
+			}
+		}
 		multi[symbol] = perTF
 	}
 	return result, multi, nil

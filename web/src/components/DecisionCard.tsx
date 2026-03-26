@@ -14,6 +14,13 @@ const ACTION_CONFIG: Record<string, { color: string; bg: string; icon: string; l
   open_short: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '📉', label: 'SHORT' },
   close_long: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'CLOSE' },
   close_short: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'CLOSE' },
+  place_buy_limit: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '🟢', label: 'BUY LIMIT' },
+  place_sell_limit: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '🔴', label: 'SELL LIMIT' },
+  cancel_order: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '🛑', label: 'CANCEL' },
+  cancel_all_orders: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '🛑', label: 'CANCEL ALL' },
+  pause_grid: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: 'PAUSE' },
+  resume_grid: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '▶️', label: 'RESUME' },
+  adjust_grid: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '⚙️', label: 'ADJUST' },
   hold: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: 'HOLD' },
   wait: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏳', label: 'WAIT' },
 }
@@ -44,9 +51,10 @@ function getConfidenceColor(confidence: number | undefined): string {
 
 // Single Action Card Component
 function ActionCard({ action, language, onSymbolClick }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void }) {
-  const config = ACTION_CONFIG[action.action] || ACTION_CONFIG.wait
-  const isLong = action.action.includes('long')
-  const isOpen = action.action.includes('open')
+  const normalizedAction = (action.action || '').toLowerCase()
+  const config = ACTION_CONFIG[normalizedAction] || ACTION_CONFIG.wait
+  const isLong = normalizedAction.includes('long') || normalizedAction.includes('buy')
+  const isOpen = normalizedAction.includes('open') || normalizedAction.startsWith('place_')
 
   return (
     <div

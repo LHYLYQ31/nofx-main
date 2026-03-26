@@ -32,16 +32,16 @@ type GridState struct {
 	GridSpacing float64
 
 	// State flags
-	IsPaused    bool
+	IsPaused      bool
 	IsInitialized bool
 
 	// Performance tracking
-	TotalProfit   float64
-	TotalTrades   int
-	WinningTrades int
-	MaxDrawdown   float64
-	PeakEquity    float64
-	DailyPnL      float64
+	TotalProfit    float64
+	TotalTrades    int
+	WinningTrades  int
+	MaxDrawdown    float64
+	PeakEquity     float64
+	DailyPnL       float64
 	LastDailyReset time.Time
 
 	// Order tracking
@@ -67,9 +67,9 @@ type GridState struct {
 	CurrentRegimeLevel string
 
 	// Grid direction adjustment
-	CurrentDirection       market.GridDirection
-	DirectionChangedAt     time.Time
-	DirectionChangeCount   int
+	CurrentDirection     market.GridDirection
+	DirectionChangedAt   time.Time
+	DirectionChangeCount int
 }
 
 // NewGridState creates a new grid state
@@ -877,8 +877,8 @@ func (at *AutoTrader) buildGridContext() (*kernel.GridContext, error) {
 		return nil, fmt.Errorf("failed to get market data: %w", err)
 	}
 
-	// Build base context from market data
-	ctx := kernel.BuildGridContextFromMarketData(mktData, gridConfig)
+	// Build base context from market data (prefer decision timeframe, fallback to longer context).
+	ctx := kernel.BuildGridContextFromMarketData(mktData, gridConfig, "5m", []string{"4h"})
 
 	// Add grid state
 	at.gridState.mu.RLock()
@@ -1661,9 +1661,9 @@ type GridRiskInfo struct {
 	BreakoutDirection string `json:"breakout_direction"`
 
 	// Grid direction
-	CurrentGridDirection    string `json:"current_grid_direction"`
-	DirectionChangeCount    int    `json:"direction_change_count"`
-	EnableDirectionAdjust   bool   `json:"enable_direction_adjust"`
+	CurrentGridDirection  string `json:"current_grid_direction"`
+	DirectionChangeCount  int    `json:"direction_change_count"`
+	EnableDirectionAdjust bool   `json:"enable_direction_adjust"`
 }
 
 // GetGridRiskInfo returns current risk information for frontend display

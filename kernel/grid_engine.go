@@ -7,6 +7,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"sort"
 	"strings"
 	"time"
 )
@@ -17,24 +18,24 @@ import (
 
 // GridLevelInfo represents a single grid level's current state
 type GridLevelInfo struct {
-	Index          int     `json:"index"`            // Level index (0 = lowest)
-	Price          float64 `json:"price"`            // Target price for this level
-	State          string  `json:"state"`            // "empty", "pending", "filled"
-	Side           string  `json:"side"`             // "buy" or "sell"
-	OrderID        string  `json:"order_id"`         // Current order ID (if pending)
-	OrderQuantity  float64 `json:"order_quantity"`   // Order quantity
-	PositionSize   float64 `json:"position_size"`    // Position size (if filled)
-	PositionEntry  float64 `json:"position_entry"`   // Entry price (if filled)
-	AllocatedUSD   float64 `json:"allocated_usd"`    // USD allocated to this level
-	UnrealizedPnL  float64 `json:"unrealized_pnl"`   // Unrealized P&L (if filled)
+	Index         int     `json:"index"`          // Level index (0 = lowest)
+	Price         float64 `json:"price"`          // Target price for this level
+	State         string  `json:"state"`          // "empty", "pending", "filled"
+	Side          string  `json:"side"`           // "buy" or "sell"
+	OrderID       string  `json:"order_id"`       // Current order ID (if pending)
+	OrderQuantity float64 `json:"order_quantity"` // Order quantity
+	PositionSize  float64 `json:"position_size"`  // Position size (if filled)
+	PositionEntry float64 `json:"position_entry"` // Entry price (if filled)
+	AllocatedUSD  float64 `json:"allocated_usd"`  // USD allocated to this level
+	UnrealizedPnL float64 `json:"unrealized_pnl"` // Unrealized P&L (if filled)
 }
 
 // GridContext contains all information needed for AI grid decision making
 type GridContext struct {
 	// Basic info
-	Symbol       string    `json:"symbol"`
-	CurrentTime  string    `json:"current_time"`
-	CurrentPrice float64   `json:"current_price"`
+	Symbol       string  `json:"symbol"`
+	CurrentTime  string  `json:"current_time"`
+	CurrentPrice float64 `json:"current_price"`
 
 	// Grid configuration
 	GridCount       int     `json:"grid_count"`
@@ -52,22 +53,22 @@ type GridContext struct {
 	IsPaused         bool            `json:"is_paused"`
 
 	// Market data
-	ATR14          float64 `json:"atr14"`
-	BollingerUpper float64 `json:"bollinger_upper"`
+	ATR14           float64 `json:"atr14"`
+	BollingerUpper  float64 `json:"bollinger_upper"`
 	BollingerMiddle float64 `json:"bollinger_middle"`
-	BollingerLower float64 `json:"bollinger_lower"`
-	BollingerWidth float64 `json:"bollinger_width"` // Percentage
-	EMA20          float64 `json:"ema20"`
-	EMA50          float64 `json:"ema50"`
-	EMADistance    float64 `json:"ema_distance"` // Percentage
-	RSI14          float64 `json:"rsi14"`
-	MACD           float64 `json:"macd"`
-	MACDSignal     float64 `json:"macd_signal"`
-	MACDHistogram  float64 `json:"macd_histogram"`
-	FundingRate    float64 `json:"funding_rate"`
-	Volume24h      float64 `json:"volume_24h"`
-	PriceChange1h  float64 `json:"price_change_1h"`
-	PriceChange4h  float64 `json:"price_change_4h"`
+	BollingerLower  float64 `json:"bollinger_lower"`
+	BollingerWidth  float64 `json:"bollinger_width"` // Percentage
+	EMA20           float64 `json:"ema20"`
+	EMA50           float64 `json:"ema50"`
+	EMADistance     float64 `json:"ema_distance"` // Percentage
+	RSI14           float64 `json:"rsi14"`
+	MACD            float64 `json:"macd"`
+	MACDSignal      float64 `json:"macd_signal"`
+	MACDHistogram   float64 `json:"macd_histogram"`
+	FundingRate     float64 `json:"funding_rate"`
+	Volume24h       float64 `json:"volume_24h"`
+	PriceChange1h   float64 `json:"price_change_1h"`
+	PriceChange4h   float64 `json:"price_change_4h"`
 
 	// Account info
 	TotalEquity      float64 `json:"total_equity"`
@@ -86,7 +87,8 @@ type GridContext struct {
 	BoxData *market.BoxData `json:"box_data,omitempty"`
 
 	// Grid direction (neutral, long, short, long_bias, short_bias)
-	CurrentDirection string `json:"current_direction,omitempty"`
+	CurrentDirection  string `json:"current_direction,omitempty"`
+	IndicatorSourceTF string `json:"indicator_source_tf,omitempty"`
 }
 
 // ============================================================================
@@ -223,6 +225,9 @@ func buildGridUserPromptZh(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- 当前价格: $%.2f\n", ctx.CurrentPrice))
 	sb.WriteString(fmt.Sprintf("- 1小时涨跌: %.2f%%\n", ctx.PriceChange1h))
 	sb.WriteString(fmt.Sprintf("- 4小时涨跌: %.2f%%\n", ctx.PriceChange4h))
+	if ctx.IndicatorSourceTF != "" {
+		sb.WriteString(fmt.Sprintf("- 指标来源周期: %s\n", ctx.IndicatorSourceTF))
+	}
 	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%)\n", ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100))
 	sb.WriteString(fmt.Sprintf("- 布林带: 上轨 $%.2f, 中轨 $%.2f, 下轨 $%.2f\n", ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower))
 	sb.WriteString(fmt.Sprintf("- 布林带宽度: %.2f%%\n", ctx.BollingerWidth))
@@ -334,6 +339,9 @@ func buildGridUserPromptEn(ctx *GridContext) string {
 	sb.WriteString(fmt.Sprintf("- Current Price: $%.2f\n", ctx.CurrentPrice))
 	sb.WriteString(fmt.Sprintf("- 1h Change: %.2f%%\n", ctx.PriceChange1h))
 	sb.WriteString(fmt.Sprintf("- 4h Change: %.2f%%\n", ctx.PriceChange4h))
+	if ctx.IndicatorSourceTF != "" {
+		sb.WriteString(fmt.Sprintf("- Indicator Source TF: %s\n", ctx.IndicatorSourceTF))
+	}
 	sb.WriteString(fmt.Sprintf("- ATR14: $%.2f (%.2f%%)\n", ctx.ATR14, ctx.ATR14/ctx.CurrentPrice*100))
 	sb.WriteString(fmt.Sprintf("- Bollinger Bands: Upper $%.2f, Middle $%.2f, Lower $%.2f\n", ctx.BollingerUpper, ctx.BollingerMiddle, ctx.BollingerLower))
 	sb.WriteString(fmt.Sprintf("- Bollinger Width: %.2f%%\n", ctx.BollingerWidth))
@@ -541,9 +549,9 @@ func isValidGridAction(action string) bool {
 		"adjust_grid":       true,
 		"hold":              true,
 		// Also support standard actions for compatibility
-		"open_long":  true,
-		"open_short": true,
-		"close_long": true,
+		"open_long":   true,
+		"open_short":  true,
+		"close_long":  true,
 		"close_short": true,
 	}
 	return validActions[action]
@@ -554,7 +562,7 @@ func isValidGridAction(action string) bool {
 // ============================================================================
 
 // BuildGridContextFromMarketData builds grid context from market data
-func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStrategyConfig) *GridContext {
+func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStrategyConfig, preferredTF string, fallbackTFs []string) *GridContext {
 	ctx := &GridContext{
 		Symbol:       config.Symbol,
 		CurrentTime:  time.Now().Format("2006-01-02 15:04:05"),
@@ -574,18 +582,31 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 
 	// Extract indicators from timeframe data
 	if mktData.TimeframeData != nil {
-		if tf5m, ok := mktData.TimeframeData["5m"]; ok {
-			if len(tf5m.BOLLUpper) > 0 {
-				ctx.BollingerUpper = tf5m.BOLLUpper[len(tf5m.BOLLUpper)-1]
-				ctx.BollingerMiddle = tf5m.BOLLMiddle[len(tf5m.BOLLMiddle)-1]
-				ctx.BollingerLower = tf5m.BOLLLower[len(tf5m.BOLLLower)-1]
+		tfUsed, tfData := selectIndicatorTimeframeData(mktData.TimeframeData, preferredTF, fallbackTFs)
+		if tfData != nil {
+			ctx.IndicatorSourceTF = tfUsed
+			if len(tfData.BOLLUpper) > 0 && len(tfData.BOLLMiddle) > 0 && len(tfData.BOLLLower) > 0 {
+				ctx.BollingerUpper = tfData.BOLLUpper[len(tfData.BOLLUpper)-1]
+				ctx.BollingerMiddle = tfData.BOLLMiddle[len(tfData.BOLLMiddle)-1]
+				ctx.BollingerLower = tfData.BOLLLower[len(tfData.BOLLLower)-1]
 				if ctx.BollingerMiddle > 0 {
 					ctx.BollingerWidth = (ctx.BollingerUpper - ctx.BollingerLower) / ctx.BollingerMiddle * 100
 				}
 			}
-			ctx.ATR14 = tf5m.ATR14
-			if len(tf5m.RSI14Values) > 0 {
-				ctx.RSI14 = tf5m.RSI14Values[len(tf5m.RSI14Values)-1]
+			ctx.ATR14 = tfData.ATR14
+			if len(tfData.RSI14Values) > 0 {
+				ctx.RSI14 = tfData.RSI14Values[len(tfData.RSI14Values)-1]
+			}
+			if len(tfData.EMA20Values) > 0 {
+				ctx.EMA20 = tfData.EMA20Values[len(tfData.EMA20Values)-1]
+			}
+			if len(tfData.EMA50Values) > 0 {
+				ctx.EMA50 = tfData.EMA50Values[len(tfData.EMA50Values)-1]
+			}
+			if len(tfData.MACDValues) > 0 {
+				ctx.MACD = tfData.MACDValues[len(tfData.MACDValues)-1]
+				ctx.MACDSignal = emaValue(tfData.MACDValues, 9)
+				ctx.MACDHistogram = ctx.MACD - ctx.MACDSignal
 			}
 		}
 	}
@@ -595,11 +616,17 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 		if ctx.ATR14 == 0 {
 			ctx.ATR14 = mktData.LongerTermContext.ATR14
 		}
-		ctx.EMA50 = mktData.LongerTermContext.EMA50
+		if ctx.EMA50 == 0 {
+			ctx.EMA50 = mktData.LongerTermContext.EMA50
+		}
 	}
 
-	ctx.EMA20 = mktData.CurrentEMA20
-	ctx.MACD = mktData.CurrentMACD
+	if ctx.EMA20 == 0 {
+		ctx.EMA20 = mktData.CurrentEMA20
+	}
+	if ctx.MACD == 0 {
+		ctx.MACD = mktData.CurrentMACD
+	}
 
 	// Calculate EMA distance
 	if ctx.EMA50 > 0 {
@@ -607,6 +634,90 @@ func BuildGridContextFromMarketData(mktData *market.Data, config *store.GridStra
 	}
 
 	return ctx
+}
+
+func selectIndicatorTimeframeData(tfData map[string]*market.TimeframeSeriesData, preferredTF string, fallbackTFs []string) (string, *market.TimeframeSeriesData) {
+	if len(tfData) == 0 {
+		return "", nil
+	}
+
+	ordered := make([]string, 0, 1+len(fallbackTFs))
+	seen := make(map[string]struct{}, 1+len(fallbackTFs))
+	appendTF := func(tf string) {
+		n := strings.ToLower(strings.TrimSpace(tf))
+		if n == "" {
+			return
+		}
+		if _, ok := seen[n]; ok {
+			return
+		}
+		seen[n] = struct{}{}
+		ordered = append(ordered, n)
+	}
+	appendTF(preferredTF)
+	for _, tf := range fallbackTFs {
+		appendTF(tf)
+	}
+
+	// Priority 1: preferred+fallback with usable indicator values.
+	for _, tf := range ordered {
+		if data, ok := tfData[tf]; ok && data != nil && hasUsableIndicatorData(data) {
+			return tf, data
+		}
+	}
+	// Priority 2: preferred+fallback even if sparse.
+	for _, tf := range ordered {
+		if data, ok := tfData[tf]; ok && data != nil {
+			return tf, data
+		}
+	}
+
+	keys := make([]string, 0, len(tfData))
+	for tf := range tfData {
+		keys = append(keys, tf)
+	}
+	sort.Strings(keys)
+
+	// Priority 3: any timeframe with usable indicator values.
+	for _, tf := range keys {
+		data := tfData[tf]
+		if data != nil && hasUsableIndicatorData(data) {
+			return tf, data
+		}
+	}
+	// Priority 4: any available timeframe.
+	for _, tf := range keys {
+		if data := tfData[tf]; data != nil {
+			return tf, data
+		}
+	}
+	return "", nil
+}
+
+func hasUsableIndicatorData(data *market.TimeframeSeriesData) bool {
+	if data == nil {
+		return false
+	}
+	return data.ATR14 > 0 ||
+		len(data.RSI14Values) > 0 ||
+		len(data.MACDValues) > 0 ||
+		len(data.BOLLUpper) > 0 ||
+		len(data.BOLLMiddle) > 0 ||
+		len(data.BOLLLower) > 0 ||
+		len(data.EMA20Values) > 0 ||
+		len(data.EMA50Values) > 0
+}
+
+func emaValue(values []float64, period int) float64 {
+	if len(values) == 0 || period <= 0 {
+		return 0
+	}
+	ema := values[0]
+	k := 2.0 / float64(period+1)
+	for i := 1; i < len(values); i++ {
+		ema = values[i]*k + ema*(1-k)
+	}
+	return ema
 }
 
 // Helper function for max
