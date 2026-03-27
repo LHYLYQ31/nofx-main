@@ -260,6 +260,11 @@ func (s *Server) setupRoutes() {
 				admin.GET("/signal-notify-users", s.handleAdminListSignalNotifyUsers)
 				admin.PUT("/signal-notify-users", s.handleAdminUpsertSignalNotifyUser)
 				admin.DELETE("/signal-notify-users/:email", s.handleAdminDeleteSignalNotifyUser)
+				admin.GET("/backtest-showcase-users", s.handleAdminListBacktestShowcaseUsers)
+				admin.PUT("/backtest-showcase-users", s.handleAdminUpsertBacktestShowcaseUser)
+				admin.DELETE("/backtest-showcase-users/:email", s.handleAdminDeleteBacktestShowcaseUser)
+				admin.GET("/showcase-strategies", s.handleAdminListShowcaseStrategies)
+				admin.PUT("/showcase-strategies", s.handleAdminSetShowcaseStrategies)
 			}
 		}
 	}

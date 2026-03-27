@@ -5,6 +5,7 @@ import type { Strategy } from '../types'
 import { api } from '../lib/api'
 import { notify } from '../lib/notify'
 import { httpClient } from '../lib/httpClient'
+import { getPremiumStrategyName } from '../utils/displayName'
 
 interface AdminUser {
   id: string
@@ -175,6 +176,9 @@ export function StrategyPermissionPage() {
   const [updatingRole, setUpdatingRole] = useState(false)
   const [loadingUserPerm, setLoadingUserPerm] = useState(false)
   const [canManageRoles, setCanManageRoles] = useState(false)
+  const [showcaseStrategyIDs, setShowcaseStrategyIDs] = useState<Set<string>>(new Set())
+  const [loadingShowcase, setLoadingShowcase] = useState(false)
+  const [savingShowcase, setSavingShowcase] = useState(false)
 
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserID) || null,
@@ -249,6 +253,7 @@ export function StrategyPermissionPage() {
 
   useEffect(() => {
     void loadStrategies()
+    void loadShowcaseStrategies()
   }, [])
 
   useEffect(() => {
@@ -309,8 +314,45 @@ export function StrategyPermissionPage() {
 
   const onRefresh = async () => {
     await loadStrategies()
+    await loadShowcaseStrategies()
     if (hasSearched) {
       await searchUsers()
+    }
+  }
+
+  const loadShowcaseStrategies = async () => {
+    setLoadingShowcase(true)
+    try {
+      const result = await api.getAdminShowcaseStrategies()
+      setShowcaseStrategyIDs(new Set(result.strategy_ids || []))
+    } catch (error) {
+      notify.error(getErrorMessage(error, 'Failed to load showcase strategy config'))
+    } finally {
+      setLoadingShowcase(false)
+    }
+  }
+
+  const toggleShowcaseStrategy = (strategyID: string) => {
+    setShowcaseStrategyIDs((prev) => {
+      const next = new Set(prev)
+      if (next.has(strategyID)) {
+        next.delete(strategyID)
+      } else {
+        next.add(strategyID)
+      }
+      return next
+    })
+  }
+
+  const saveShowcaseStrategies = async () => {
+    setSavingShowcase(true)
+    try {
+      await api.setAdminShowcaseStrategies(Array.from(showcaseStrategyIDs))
+      notify.success(language === 'zh' ? '橱窗策略配置已保存' : 'Showcase strategy config saved')
+    } catch (error) {
+      notify.error(getErrorMessage(error, 'Failed to save showcase strategy config'))
+    } finally {
+      setSavingShowcase(false)
     }
   }
 
@@ -463,7 +505,9 @@ export function StrategyPermissionPage() {
                       className="mt-0.5"
                     />
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-nofx-text truncate">{decodeUnicodeText(strategy.name || '')}</div>
+                      <div className="text-sm font-medium text-nofx-text truncate">
+                        {getPremiumStrategyName(decodeUnicodeText(strategy.name || ''))}
+                      </div>
                       <div className="text-xs text-nofx-text-muted mt-1 line-clamp-2">
                         {decodeUnicodeText(strategy.description || i18n.noDescription)}
                       </div>
@@ -475,6 +519,82 @@ export function StrategyPermissionPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="rounded-lg border border-nofx-gold/20 bg-nofx-bg-lighter p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-base font-semibold text-nofx-text">
+              {language === 'zh' ? '官方策略照片墙配置' : 'Official Strategy Wall Config'}
+            </h2>
+            <p className="text-xs text-nofx-text-muted mt-1">
+              {language === 'zh'
+                ? '选择需要在回测橱窗照片墙展示的策略。'
+                : 'Choose strategies to display in the backtest showcase wall.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowcaseStrategyIDs(new Set(strategies.map((s) => s.id)))}
+              disabled={strategies.length === 0}
+              className="px-3 py-1.5 rounded text-xs border border-nofx-gold/30 text-nofx-text disabled:opacity-40"
+            >
+              {i18n.selectAll}
+            </button>
+            <button
+              onClick={() => setShowcaseStrategyIDs(new Set())}
+              className="px-3 py-1.5 rounded text-xs border border-nofx-gold/30 text-nofx-text"
+            >
+              {i18n.clear}
+            </button>
+            <button
+              onClick={() => void saveShowcaseStrategies()}
+              disabled={savingShowcase}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-xs font-semibold bg-nofx-gold text-black disabled:opacity-40"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {savingShowcase ? i18n.saving : i18n.save}
+            </button>
+          </div>
+        </div>
+
+        {loadingShowcase ? (
+          <div className="text-sm text-nofx-text-muted">
+            {language === 'zh' ? '正在加载橱窗策略配置...' : 'Loading showcase strategy config...'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[360px] overflow-y-auto pr-1">
+            {strategies.map((strategy) => {
+              const checked = showcaseStrategyIDs.has(strategy.id)
+              return (
+                <label
+                  key={`showcase-${strategy.id}`}
+                  className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                    checked
+                      ? 'border-nofx-gold/50 bg-nofx-gold/10'
+                      : 'border-nofx-gold/15 bg-nofx-bg hover:border-nofx-gold/30'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleShowcaseStrategy(strategy.id)}
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-nofx-text truncate">
+                      {getPremiumStrategyName(decodeUnicodeText(strategy.name || ''))}
+                    </div>
+                    <div className="text-xs text-nofx-text-muted mt-1 line-clamp-2">
+                      {decodeUnicodeText(strategy.description || i18n.noDescription)}
+                    </div>
+                  </div>
+                </label>
+              )
+            })}
+            {strategies.length === 0 && <div className="text-sm text-nofx-text-muted">{i18n.noStrategies}</div>}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -19,6 +19,7 @@ import { DebateArenaPage } from './pages/DebateArenaPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
 import { BacktestHomePreviewPage } from './pages/BacktestHomePreviewPage'
+import { BacktestShowcasePage } from './pages/BacktestShowcasePage'
 import { LoginRequiredOverlay } from './components/LoginRequiredOverlay'
 import HeaderBar from './components/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
@@ -505,7 +506,7 @@ function App() {
                 }}
               />
             ) : currentPage === 'backtest' ? (
-              <BacktestPage />
+              user?.role === 'ADMIN' ? <BacktestPage /> : <BacktestShowcasePage />
             ) : currentPage === 'strategy' && user?.role === 'ADMIN' ? (
               <StrategyStudioPage />
             ) : currentPage === 'strategy-permissions' &&

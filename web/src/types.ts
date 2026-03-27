@@ -306,6 +306,18 @@ export interface SignalNotifyUserItem {
   updated_at?: string;
 }
 
+export interface BacktestShowcaseUserItem {
+  email: string;
+  enabled: boolean;
+  updated_at?: string;
+}
+
+export interface ShowcaseStrategyItem {
+  strategy_id: string;
+  strategy_name?: string;
+  sort_order?: number;
+}
+
 export interface BacktestMetaCorrectionPatch {
   label?: string;
   state?: string;

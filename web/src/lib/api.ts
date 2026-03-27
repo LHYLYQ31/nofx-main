@@ -34,6 +34,8 @@ import type {
   PositionHistoryResponse,
   StrategyWebhookItem,
   SignalNotifyUserItem,
+  BacktestShowcaseUserItem,
+  ShowcaseStrategyItem,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -849,6 +851,56 @@ export const api = {
       `${API_BASE}/admin/signal-notify-users/${encodeURIComponent(email)}`
     )
     if (!result.success) throw new Error('Failed to delete notify user')
+  },
+
+  async getAdminBacktestShowcaseUsers(): Promise<BacktestShowcaseUserItem[]> {
+    const result = await httpClient.get<{ items: BacktestShowcaseUserItem[] }>(
+      `${API_BASE}/admin/backtest-showcase-users`
+    )
+    if (!result.success) throw new Error('Failed to load backtest showcase users')
+    return result.data?.items || []
+  },
+
+  async upsertAdminBacktestShowcaseUser(payload: { email: string; enabled: boolean }): Promise<void> {
+    const result = await httpClient.put(`${API_BASE}/admin/backtest-showcase-users`, payload)
+    if (!result.success) throw new Error('Failed to save backtest showcase user')
+  },
+
+  async deleteAdminBacktestShowcaseUser(email: string): Promise<void> {
+    const result = await httpClient.delete(
+      `${API_BASE}/admin/backtest-showcase-users/${encodeURIComponent(email)}`
+    )
+    if (!result.success) throw new Error('Failed to delete backtest showcase user')
+  },
+
+  async getAdminShowcaseStrategies(): Promise<{
+    items: ShowcaseStrategyItem[]
+    strategy_ids: string[]
+  }> {
+    const result = await httpClient.get<{
+      items: ShowcaseStrategyItem[]
+      strategy_ids: string[]
+    }>(`${API_BASE}/admin/showcase-strategies`)
+    if (!result.success) throw new Error('Failed to load showcase strategies')
+    return {
+      items: result.data?.items || [],
+      strategy_ids: result.data?.strategy_ids || [],
+    }
+  },
+
+  async setAdminShowcaseStrategies(strategyIDs: string[]): Promise<void> {
+    const result = await httpClient.put(`${API_BASE}/admin/showcase-strategies`, {
+      strategy_ids: strategyIDs,
+    })
+    if (!result.success) throw new Error('Failed to save showcase strategies')
+  },
+
+  async getBacktestShowcaseStrategies(): Promise<ShowcaseStrategyItem[]> {
+    const result = await httpClient.get<{ items: ShowcaseStrategyItem[] }>(
+      `${API_BASE}/backtest/showcase/strategies`
+    )
+    if (!result.success) throw new Error('Failed to load backtest showcase strategies')
+    return result.data?.items || []
   },
 
   // Debate Arena APIs

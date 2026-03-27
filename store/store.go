@@ -32,6 +32,8 @@ type Store struct {
 	userStrategyPermission *UserStrategyPermissionStore
 	strategyWebhook        *StrategyWebhookStore
 	signalNotifyUser       *SignalNotifyUserStore
+	backtestShowcaseUser   *BacktestShowcaseUserStore
+	strategyShowcase       *StrategyShowcaseStore
 
 	mu sync.RWMutex
 }
@@ -171,6 +173,12 @@ func (s *Store) initTables() error {
 	}
 	if err := s.SignalNotifyUser().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize signal notify user tables: %w", err)
+	}
+	if err := s.BacktestShowcaseUser().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize backtest showcase user tables: %w", err)
+	}
+	if err := s.StrategyShowcase().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize strategy showcase tables: %w", err)
 	}
 	return nil
 }
@@ -333,6 +341,26 @@ func (s *Store) SignalNotifyUser() *SignalNotifyUserStore {
 		s.signalNotifyUser = NewSignalNotifyUserStore(s.gdb)
 	}
 	return s.signalNotifyUser
+}
+
+// BacktestShowcaseUser gets backtest showcase user storage
+func (s *Store) BacktestShowcaseUser() *BacktestShowcaseUserStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.backtestShowcaseUser == nil {
+		s.backtestShowcaseUser = NewBacktestShowcaseUserStore(s.gdb)
+	}
+	return s.backtestShowcaseUser
+}
+
+// StrategyShowcase gets strategy showcase storage
+func (s *Store) StrategyShowcase() *StrategyShowcaseStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.strategyShowcase == nil {
+		s.strategyShowcase = NewStrategyShowcaseStore(s.gdb)
+	}
+	return s.strategyShowcase
 }
 
 // Close closes database connection

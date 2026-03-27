@@ -21,6 +21,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
 import { toast } from 'sonner'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
+import { getPremiumStrategyName } from '../utils/displayName'
 
 interface PublicStrategy {
   id: string
@@ -368,7 +369,8 @@ export function StrategyMarketPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <AnimatePresence>
                 {filteredStrategies.map((strategy, i) => {
-                  const style = getStrategyStyle(strategy.name)
+                  const displayName = getPremiumStrategyName(strategy.name)
+                  const style = getStrategyStyle(displayName)
                   const Icon = style.icon
                   const indicators = strategy.config_visible && strategy.config
                     ? getIndicatorList(strategy.config)
@@ -413,7 +415,7 @@ export function StrategyMarketPage() {
 
                         {/* Name and Description */}
                         <h3 className={`text-lg font-bold mb-2 tracking-tight group-hover:${style.color} transition-colors uppercase truncate relative`}>
-                          {strategy.name}
+                          {displayName}
                           <span className="absolute -bottom-1 left-0 w-8 h-[2px] bg-zinc-800 group-hover:bg-nofx-gold transition-colors"></span>
                         </h3>
                         <p className="text-xs text-zinc-500 mb-6 line-clamp-2 h-8 leading-relaxed font-sans">

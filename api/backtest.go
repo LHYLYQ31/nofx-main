@@ -37,6 +37,7 @@ func (s *Server) registerBacktestRoutes(router *gin.RouterGroup) {
 	router.GET("/status", s.handleBacktestStatus)
 	router.GET("/runs", s.handleBacktestRuns)
 	router.GET("/showcase/runs", s.handleBacktestShowcaseRuns)
+	router.GET("/showcase/strategies", s.handleBacktestShowcaseStrategies)
 	router.GET("/correction/permission", s.handleBacktestCorrectionPermission)
 	router.POST("/correction", s.handleBacktestCorrection)
 	router.GET("/equity", s.handleBacktestEquity)
@@ -46,6 +47,39 @@ func (s *Server) registerBacktestRoutes(router *gin.RouterGroup) {
 	router.GET("/decisions", s.handleBacktestDecisions)
 	router.GET("/export", s.handleBacktestExport)
 	router.GET("/klines", s.handleBacktestKlines)
+}
+
+func (s *Server) handleBacktestShowcaseStrategies(c *gin.Context) {
+	items, err := s.store.StrategyShowcase().List()
+	if err != nil {
+		SafeInternalError(c, "List showcase strategies", err)
+		return
+	}
+	all, err := s.store.Strategy().ListAll()
+	if err != nil {
+		SafeInternalError(c, "List strategies", err)
+		return
+	}
+	nameByID := make(map[string]string, len(all))
+	for _, st := range all {
+		if st == nil {
+			continue
+		}
+		nameByID[st.ID] = strings.TrimSpace(st.Name)
+	}
+
+	resp := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		resp = append(resp, gin.H{
+			"strategy_id":   it.StrategyID,
+			"strategy_name": nameByID[it.StrategyID],
+			"sort_order":    it.SortOrder,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 
 type backtestStartRequest struct {
@@ -483,8 +517,12 @@ func (s *Server) handleBacktestShowcaseRuns(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
 		return
 	}
-	showcaseUserID := s.backtestShowcaseOwnerUserID()
-	if showcaseUserID == "" {
+	showcaseOwners, err := s.backtestShowcaseOwnerUserIDSet()
+	if err != nil {
+		SafeInternalError(c, "Resolve backtest showcase owners", err)
+		return
+	}
+	if len(showcaseOwners) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"total": 0,
 			"items": []*backtest.RunMetadata{},
@@ -512,7 +550,7 @@ func (s *Server) handleBacktestShowcaseRuns(c *gin.Context) {
 	filtered := make([]*backtest.RunMetadata, 0)
 	for _, meta := range metas {
 		owner := normalizeUserID(strings.TrimSpace(meta.UserID))
-		if owner != showcaseUserID {
+		if _, ok := showcaseOwners[owner]; !ok {
 			continue
 		}
 		if stateFilter != "" && !strings.EqualFold(string(meta.State), stateFilter) {
@@ -591,10 +629,22 @@ func (s *Server) decorateBacktestRunListItems(runs []*backtest.RunMetadata) []*b
 
 func (s *Server) handleBacktestCorrectionPermission(c *gin.Context) {
 	email := normalizeEmail(c.GetString("email"))
-	showcaseEmail := s.backtestShowcaseEmail()
+	showcaseEnabled, err := s.isBacktestShowcaseEnabled()
+	if err != nil {
+		SafeInternalError(c, "Load backtest showcase permission", err)
+		return
+	}
+	canEdit := false
+	if showcaseEnabled {
+		canEdit, err = s.canEditBacktestCorrection(email)
+		if err != nil {
+			SafeInternalError(c, "Load backtest showcase editor permission", err)
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"can_edit":         showcaseEmail != "" && email == showcaseEmail,
-		"showcase_enabled": showcaseEmail != "",
+		"can_edit":         canEdit,
+		"showcase_enabled": showcaseEnabled,
 	})
 }
 
@@ -606,7 +656,12 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 
 	userID := normalizeUserID(c.GetString("user_id"))
 	email := normalizeEmail(c.GetString("email"))
-	if !s.canEditBacktestCorrection(email) {
+	canEdit, err := s.canEditBacktestCorrection(email)
+	if err != nil {
+		SafeInternalError(c, "Load backtest showcase editor permission", err)
+		return
+	}
+	if !canEdit {
 		SafeForbidden(c, "Only showcase provider account can edit backtest results")
 		return
 	}
@@ -641,9 +696,13 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 		return
 	}
 
-	showcaseUserID := s.backtestShowcaseOwnerUserID()
 	ownerUserID := normalizeUserID(meta.UserID)
-	if ownerUserID != showcaseUserID {
+	showcaseOwners, err := s.backtestShowcaseOwnerUserIDSet()
+	if err != nil {
+		SafeInternalError(c, "Resolve backtest showcase owners", err)
+		return
+	}
+	if _, ok := showcaseOwners[ownerUserID]; !ok {
 		SafeForbidden(c, "Only showcase provider account runs can be corrected")
 		return
 	}
@@ -1405,43 +1464,76 @@ func (s *Server) ensureBacktestRunAccess(runID, userID string, allowShowcaseRead
 		return meta, nil
 	}
 	if owner != userID {
-		if allowShowcaseRead && owner == s.backtestShowcaseOwnerUserID() {
-			return meta, nil
+		if allowShowcaseRead {
+			owners, err := s.backtestShowcaseOwnerUserIDSet()
+			if err != nil {
+				return nil, fmt.Errorf("resolve backtest showcase owners: %w", err)
+			}
+			if _, ok := owners[owner]; ok {
+				return meta, nil
+			}
 		}
 		return nil, errBacktestForbidden
 	}
 	return meta, nil
 }
 
-func (s *Server) backtestShowcaseEmail() string {
-	return normalizeEmail(config.Get().BacktestShowcaseEmail)
+func (s *Server) backtestShowcaseOwnerUserIDSet() (map[string]struct{}, error) {
+	owners, err := s.store.BacktestShowcaseUser().ResolveEnabledUserIDs(s.store.User())
+	if err != nil {
+		return nil, err
+	}
+	legacyOwner := s.backtestShowcaseLegacyOwnerUserID()
+	if legacyOwner != "" {
+		owners[legacyOwner] = struct{}{}
+	}
+	return owners, nil
 }
 
-func (s *Server) backtestShowcaseUserID() string {
-	return strings.TrimSpace(config.Get().BacktestShowcaseUserID)
+func (s *Server) isBacktestShowcaseEnabled() (bool, error) {
+	owners, err := s.backtestShowcaseOwnerUserIDSet()
+	if err != nil {
+		return false, err
+	}
+	return len(owners) > 0, nil
 }
 
-func (s *Server) backtestShowcaseOwnerUserID() string {
-	showcaseEmail := s.backtestShowcaseEmail()
+func (s *Server) backtestShowcaseLegacyOwnerUserID() string {
+	showcaseEmail := normalizeEmail(config.Get().BacktestShowcaseEmail)
 	if showcaseEmail != "" {
 		u, err := s.store.User().GetByEmail(showcaseEmail)
 		if err == nil && u != nil {
 			return normalizeUserID(u.ID)
 		}
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			logger.Errorf("Resolve showcase email %s failed: %v", showcaseEmail, err)
+			logger.Errorf("Resolve legacy showcase email %s failed: %v", showcaseEmail, err)
 		}
 		return ""
 	}
-	return normalizeUserID(s.backtestShowcaseUserID())
+	rawUserID := strings.TrimSpace(config.Get().BacktestShowcaseUserID)
+	if rawUserID == "" {
+		return ""
+	}
+	return normalizeUserID(rawUserID)
 }
 
-func (s *Server) canEditBacktestCorrection(email string) bool {
-	showcaseEmail := s.backtestShowcaseEmail()
-	if showcaseEmail == "" {
-		return false
+func (s *Server) canEditBacktestCorrection(email string) (bool, error) {
+	normalized := normalizeEmail(email)
+	if normalized == "" {
+		return false, nil
 	}
-	return normalizeEmail(email) == showcaseEmail
+	allowed, err := s.store.BacktestShowcaseUser().IsAllowed(normalized)
+	if err != nil {
+		return false, err
+	}
+	if allowed {
+		return true, nil
+	}
+	legacyShowcaseEmail := normalizeEmail(config.Get().BacktestShowcaseEmail)
+	if legacyShowcaseEmail == "" {
+		return false, nil
+	}
+	return normalized == legacyShowcaseEmail, nil
 }
 
 func writeBacktestAccessError(c *gin.Context, err error) bool {

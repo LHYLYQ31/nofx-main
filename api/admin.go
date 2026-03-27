@@ -305,3 +305,136 @@ func (s *Server) handleAdminDeleteSignalNotifyUser(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Notify user deleted"})
 }
+
+func (s *Server) handleAdminListBacktestShowcaseUsers(c *gin.Context) {
+	items, err := s.store.BacktestShowcaseUser().List()
+	if err != nil {
+		SafeInternalError(c, "Failed to list backtest showcase users", err)
+		return
+	}
+	resp := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		resp = append(resp, gin.H{
+			"email":      it.Email,
+			"enabled":    it.Enabled,
+			"updated_at": it.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp})
+}
+
+func (s *Server) handleAdminUpsertBacktestShowcaseUser(c *gin.Context) {
+	var req struct {
+		Email   string `json:"email" binding:"required"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		SafeBadRequest(c, "email is invalid")
+		return
+	}
+	if err := s.store.BacktestShowcaseUser().Upsert(email, req.Enabled); err != nil {
+		SafeInternalError(c, "Failed to save backtest showcase user", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Backtest showcase user updated"})
+}
+
+func (s *Server) handleAdminDeleteBacktestShowcaseUser(c *gin.Context) {
+	email := strings.ToLower(strings.TrimSpace(c.Param("email")))
+	if email == "" {
+		SafeBadRequest(c, "email is required")
+		return
+	}
+	if err := s.store.BacktestShowcaseUser().Delete(email); err != nil {
+		SafeInternalError(c, "Failed to delete backtest showcase user", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Backtest showcase user deleted"})
+}
+
+func (s *Server) handleAdminListShowcaseStrategies(c *gin.Context) {
+	items, err := s.store.StrategyShowcase().List()
+	if err != nil {
+		SafeInternalError(c, "Failed to list showcase strategies", err)
+		return
+	}
+	strategies, err := s.store.Strategy().ListAll()
+	if err != nil {
+		SafeInternalError(c, "Failed to list strategies", err)
+		return
+	}
+	nameByID := make(map[string]string, len(strategies))
+	for _, st := range strategies {
+		if st == nil {
+			continue
+		}
+		nameByID[st.ID] = strings.TrimSpace(st.Name)
+	}
+	resp := make([]gin.H, 0, len(items))
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		ids = append(ids, it.StrategyID)
+		resp = append(resp, gin.H{
+			"strategy_id":   it.StrategyID,
+			"strategy_name": nameByID[it.StrategyID],
+			"sort_order":    it.SortOrder,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":        resp,
+		"strategy_ids": ids,
+	})
+}
+
+func (s *Server) handleAdminSetShowcaseStrategies(c *gin.Context) {
+	var req struct {
+		StrategyIDs []string `json:"strategy_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	valid := make(map[string]struct{})
+	all, err := s.store.Strategy().ListAll()
+	if err != nil {
+		SafeInternalError(c, "Failed to list strategies", err)
+		return
+	}
+	for _, st := range all {
+		if st == nil {
+			continue
+		}
+		valid[st.ID] = struct{}{}
+	}
+
+	cleanIDs := make([]string, 0, len(req.StrategyIDs))
+	for _, raw := range req.StrategyIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := valid[id]; !ok {
+			SafeBadRequest(c, "strategy_id not found: "+id)
+			return
+		}
+		cleanIDs = append(cleanIDs, id)
+	}
+
+	if err := s.store.StrategyShowcase().ReplaceStrategyIDs(cleanIDs); err != nil {
+		SafeInternalError(c, "Failed to save showcase strategies", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Showcase strategies updated"})
+}

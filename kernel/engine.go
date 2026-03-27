@@ -1,4 +1,4 @@
-package kernel
+﻿package kernel
 
 import (
 	"context"
@@ -1127,27 +1127,21 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("# 📋 Decision Process\n\n")
 		sb.WriteString("1. Check positions → Should we take profit/stop-loss\n")
 		sb.WriteString("2. Scan candidate coins + multi-timeframe → Are there strong signals\n")
-		sb.WriteString("3. Write chain of thought first, then output structured JSON\n\n")
+		sb.WriteString("3. Output JSON decision array directly (no extra explanation)\n\n")
 	}
 
 	// 7. Output format
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
-	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
+	sb.WriteString("**Return JSON decision array only. Do NOT output any chain-of-thought, XML tags, markdown, or extra text.**\n\n")
 	sb.WriteString("## Format Requirements\n\n")
-	sb.WriteString("<reasoning>\n")
-	sb.WriteString("Your chain of thought analysis...\n")
-	sb.WriteString("- Briefly analyze your thinking process \n")
-	sb.WriteString("</reasoning>\n\n")
-	sb.WriteString("<decision>\n")
-	sb.WriteString("Step 2: JSON decision array\n\n")
+	sb.WriteString("Return only a valid JSON array.\n\n")
 	sb.WriteString("```json\n[\n")
 	// Use the actual configured position value ratio for BTC/ETH in the example
 	examplePositionSize := accountEquity * btcEthPosValueRatio
 	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300},\n",
 		riskControl.BTCETHMaxLeverage, examplePositionSize))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\"}\n")
-	sb.WriteString("]\n```\n")
-	sb.WriteString("</decision>\n\n")
+	sb.WriteString("]\n```\n\n")
 	sb.WriteString("## Field Description\n\n")
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
@@ -1407,7 +1401,7 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	}
 
 	sb.WriteString("---\n\n")
-	sb.WriteString("Now please analyze and output your decision (Chain of Thought + JSON)\n")
+	sb.WriteString("Now output decision JSON array only. No reasoning text.\n")
 
 	return sb.String()
 }
