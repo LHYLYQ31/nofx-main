@@ -1429,11 +1429,51 @@ func (r *Runner) gridLeverageForSymbol(symbol string) int {
 	return r.resolveLeverage(0, symbol)
 }
 
+func decisionRequiresSymbol(action string) bool {
+	switch action {
+	case "hold", "wait", "pause_grid", "resume_grid", "cancel_all_orders":
+		return false
+	default:
+		return true
+	}
+}
+
+func isOpenAction(action string) bool {
+	switch action {
+	case "open_long", "open_short":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Runner) minConfidenceThreshold() int {
+	cfg := r.strategyEngine.GetConfig()
+	if cfg == nil {
+		return 0
+	}
+	minConf := cfg.RiskControl.MinConfidence
+	if minConf < 0 {
+		return 0
+	}
+	if minConf > 100 {
+		return 100
+	}
+	return minConf
+}
+
 func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float64, ts int64, cycle int) (store.DecisionAction, []TradeEvent, string, error) {
-	symbol := dec.Symbol
-	if symbol == "" {
+	action := strings.ToLower(strings.TrimSpace(dec.Action))
+	symbol := strings.ToUpper(strings.TrimSpace(dec.Symbol))
+	reasoning := strings.TrimSpace(dec.Reasoning)
+
+	if decisionRequiresSymbol(action) && symbol == "" {
 		return store.DecisionAction{}, nil, "", fmt.Errorf("empty symbol in decision")
 	}
+
+	dec.Action = action
+	dec.Symbol = symbol
+	dec.Reasoning = reasoning
 
 	usedLeverage := r.resolveLeverage(dec.Leverage, symbol)
 	actionRecord := store.DecisionAction{
@@ -1443,8 +1483,15 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 		StopLoss:   dec.StopLoss,
 		TakeProfit: dec.TakeProfit,
 		Confidence: dec.Confidence,
-		Reasoning:  strings.TrimSpace(dec.Reasoning),
+		Reasoning:  dec.Reasoning,
 		Timestamp:  time.UnixMilli(ts).UTC(),
+	}
+
+	if isOpenAction(dec.Action) {
+		minConf := r.minConfidenceThreshold()
+		if minConf > 0 && dec.Confidence < minConf {
+			return actionRecord, nil, fmt.Sprintf("skip %s: confidence %d < min %d", dec.Action, dec.Confidence, minConf), nil
+		}
 	}
 
 	// Safe fallback decision may return Symbol=ALL + Action=wait.

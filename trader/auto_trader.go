@@ -825,6 +825,16 @@ func (at *AutoTrader) runCycle() error {
 			Success:    false,
 		}
 
+		if isOpenDecisionAction(d.Action) {
+			minConf := at.minConfidenceThreshold()
+			if minConf > 0 && d.Confidence < minConf {
+				actionRecord.Success = true
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[SKIP] %s %s skipped: confidence %d < min %d", d.Symbol, d.Action, d.Confidence, minConf))
+				record.Decisions = append(record.Decisions, actionRecord)
+				continue
+			}
+		}
+
 		if alertOnlyMode {
 			if err := at.handleAlertOnlyDecision(&d, &actionRecord); err != nil {
 				logger.Infof("閴?Failed to process signal (%s %s): %v", d.Symbol, d.Action, err)
@@ -1178,6 +1188,14 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 // This is a public method that can be called by other modules
 func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 	logger.Infof("[%s] Executing external decision: %s %s", at.name, d.Action, d.Symbol)
+
+	if isOpenDecisionAction(d.Action) {
+		minConf := at.minConfidenceThreshold()
+		if minConf > 0 && d.Confidence < minConf {
+			logger.Infof("[%s] Skip external %s %s: confidence %d < min %d", at.name, d.Action, d.Symbol, d.Confidence, minConf)
+			return nil
+		}
+	}
 
 	// Create a minimal action record for tracking
 	actionRecord := &store.DecisionAction{
@@ -2369,6 +2387,29 @@ func (at *AutoTrader) recordOrderFill(orderRecordID int64, exchangeOrderID, symb
 func isBTCETH(symbol string) bool {
 	symbol = strings.ToUpper(symbol)
 	return strings.HasPrefix(symbol, "BTC") || strings.HasPrefix(symbol, "ETH")
+}
+
+func isOpenDecisionAction(action string) bool {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "open_long", "open_short":
+		return true
+	default:
+		return false
+	}
+}
+
+func (at *AutoTrader) minConfidenceThreshold() int {
+	if at.config.StrategyConfig == nil {
+		return 0
+	}
+	minConf := at.config.StrategyConfig.RiskControl.MinConfidence
+	if minConf < 0 {
+		return 0
+	}
+	if minConf > 100 {
+		return 100
+	}
+	return minConf
 }
 
 // enforcePositionValueRatio checks and enforces position value ratio limits (CODE ENFORCED)

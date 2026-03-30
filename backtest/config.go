@@ -83,12 +83,11 @@ func (cfg *BacktestConfig) Validate() error {
 	cfg.UserEmail = strings.ToLower(strings.TrimSpace(cfg.UserEmail))
 	cfg.AIModelID = strings.TrimSpace(cfg.AIModelID)
 
-	if len(cfg.Symbols) == 0 {
+	normalizedSymbols := normalizeBacktestSymbols(cfg.Symbols)
+	if len(normalizedSymbols) == 0 {
 		return fmt.Errorf("at least one symbol is required")
 	}
-	for i, sym := range cfg.Symbols {
-		cfg.Symbols[i] = market.Normalize(sym)
-	}
+	cfg.Symbols = normalizedSymbols
 
 	if len(cfg.Timeframes) == 0 {
 		cfg.Timeframes = []string{"3m", "15m", "4h"}
@@ -163,6 +162,44 @@ func (cfg *BacktestConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func normalizeBacktestSymbols(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(input))
+	result := make([]string, 0, len(input))
+
+	splitter := func(r rune) bool {
+		return r == ',' || r == ';' || r == '|' || r == '，' || r == '；' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}
+
+	for _, raw := range input {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		parts := strings.FieldsFunc(raw, splitter)
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			sym := market.Normalize(part)
+			if sym == "" {
+				continue
+			}
+			if _, ok := seen[sym]; ok {
+				continue
+			}
+			seen[sym] = struct{}{}
+			result = append(result, sym)
+		}
+	}
+
+	return result
 }
 
 // Duration returns the backtest interval duration.

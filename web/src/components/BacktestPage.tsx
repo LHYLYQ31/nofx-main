@@ -85,6 +85,33 @@ const parseOptionalInt = (value: string): number | undefined => {
   return Number.isInteger(parsed) ? parsed : undefined
 }
 
+type ParseSymbolsResult =
+  | { ok: true; symbols: string[] }
+  | { ok: false; invalidToken?: string }
+
+const SYMBOL_TOKEN_PATTERN = /^[A-Za-z0-9:_-]+$/
+const INVALID_SYMBOL_SEPARATOR_PATTERN = /[;|\uFF0C\u3001\uFF1B]/
+
+const parseSymbolsInput = (raw: string): ParseSymbolsResult => {
+  const trimmed = raw.trim()
+  if (!trimmed) return { ok: true, symbols: [] }
+  if (INVALID_SYMBOL_SEPARATOR_PATTERN.test(trimmed)) return { ok: false }
+
+  if (trimmed.includes(',')) {
+    const symbols = trimmed.split(',').map((part) => part.trim())
+    if (symbols.some((symbol) => symbol.length === 0)) return { ok: false }
+    if (symbols.some((symbol) => /\s/.test(symbol))) return { ok: false }
+    const invalidToken = symbols.find((symbol) => !SYMBOL_TOKEN_PATTERN.test(symbol))
+    if (invalidToken) return { ok: false, invalidToken }
+    return { ok: true, symbols }
+  }
+
+  const symbols = trimmed.split(/\s+/).filter(Boolean)
+  const invalidToken = symbols.find((symbol) => !SYMBOL_TOKEN_PATTERN.test(symbol))
+  if (invalidToken) return { ok: false, invalidToken }
+  return { ok: true, symbols }
+}
+
 
 // ============ Sub Components ============
 
@@ -855,6 +882,7 @@ export function BacktestPage() {
     tradeNote: '',
   })
   const [toast, setToast] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(null)
+  const [symbolsFormatError, setSymbolsFormatError] = useState<string | null>(null)
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Form state
@@ -936,6 +964,15 @@ export function BacktestPage() {
   const selectedModel = aiModels?.find((m) => m.id === formState.aiModelId)
   const selectedStrategy = strategies?.find((s) => s.id === formState.strategyId)
   const isDecisionTfValid = formState.timeframes.includes(formState.decisionTf)
+  const symbolsFormatHint =
+    language === 'zh'
+      ? '支持两种格式：BTCUSDT,ETHUSDT,SOLUSDT 或 BTCUSDT ETHUSDT SOLUSDT'
+      : 'Supported formats: BTCUSDT,ETHUSDT,SOLUSDT or BTCUSDT ETHUSDT SOLUSDT'
+  const selectedSymbolList = useMemo(() => {
+    const parsed = parseSymbolsInput(formState.symbols)
+    return parsed.ok ? parsed.symbols : []
+  }, [formState.symbols])
+  const selectedSymbolSet = useMemo(() => new Set(selectedSymbolList), [selectedSymbolList])
   const decisionTfHint =
     language === 'zh'
       ? '决策周期必须包含在时间周期中，请先选择包含该周期的 timeframes。'
@@ -1030,6 +1067,25 @@ export function BacktestPage() {
     setFormState((prev) => ({ ...prev, [key]: value }))
   }
 
+  const getSymbolsFormatErrorText = useCallback((invalidToken?: string) => {
+    if (language === 'zh') {
+      if (invalidToken) {
+        return `交易标的格式错误（${invalidToken}）。${symbolsFormatHint}`
+      }
+      return `交易标的格式错误。${symbolsFormatHint}`
+    }
+    if (invalidToken) {
+      return `Invalid symbols format (${invalidToken}). ${symbolsFormatHint}`
+    }
+    return `Invalid symbols format. ${symbolsFormatHint}`
+  }, [language, symbolsFormatHint])
+
+  const handleSymbolsChange = useCallback((value: string) => {
+    handleFormChange('symbols', value)
+    const parsed = parseSymbolsInput(value)
+    setSymbolsFormatError(parsed.ok ? null : getSymbolsFormatErrorText(parsed.invalidToken))
+  }, [getSymbolsFormatErrorText])
+
   const handleStart = async (event: FormEvent) => {
     event.preventDefault()
     if (!selectedModel?.enabled) {
@@ -1048,7 +1104,15 @@ export function BacktestPage() {
       if (end <= start) throw new Error(tr('toasts.invalidRange'))
 
       // Parse user symbols - if using dynamic coin strategy, allow empty
-      const userSymbols = formState.symbols.split(',').map((s) => s.trim()).filter(Boolean)
+      const parsedSymbols = parseSymbolsInput(formState.symbols)
+      if (!parsedSymbols.ok) {
+        const errMsg = getSymbolsFormatErrorText(parsedSymbols.invalidToken)
+        setSymbolsFormatError(errMsg)
+        setToast({ text: errMsg, tone: 'error' })
+        return
+      }
+      const userSymbols = parsedSymbols.symbols
+      setSymbolsFormatError(null)
 
       const strategyStaticCoins = selectedStrategy?.config?.coin_source?.static_coins?.map((s) => s.trim()).filter(Boolean) || []
 
@@ -1102,6 +1166,18 @@ export function BacktestPage() {
     } finally {
       setIsStarting(false)
     }
+  }
+
+  const goToStep2 = () => {
+    const parsed = parseSymbolsInput(formState.symbols)
+    if (!parsed.ok) {
+      const errMsg = getSymbolsFormatErrorText(parsed.invalidToken)
+      setSymbolsFormatError(errMsg)
+      setToast({ text: errMsg, tone: 'error' })
+      return
+    }
+    setSymbolsFormatError(null)
+    setWizardStep(2)
   }
 
   const handleControl = async (action: 'pause' | 'resume' | 'stop' | 'closeAll') => {
@@ -1552,17 +1628,17 @@ export function BacktestPage() {
                         {!strategyHasDynamicCoins && (
                           <div className="flex flex-wrap gap-1 mb-2">
                             {POPULAR_SYMBOLS.map((sym) => {
-                              const isSelected = formState.symbols.includes(sym)
+                              const isSelected = selectedSymbolSet.has(sym)
                               return (
                                 <button
                                   key={sym}
                                   type="button"
                                   onClick={() => {
-                                    const current = formState.symbols.split(',').map((s) => s.trim()).filter(Boolean)
+                                    const current = selectedSymbolList
                                     const updated = isSelected
                                       ? current.filter((s) => s !== sym)
                                       : [...current, sym]
-                                    handleFormChange('symbols', updated.join(','))
+                                    handleSymbolsChange(updated.join(','))
                                   }}
                                   className="px-2 py-1 rounded text-xs transition-all"
                                   style={{
@@ -1582,11 +1658,11 @@ export function BacktestPage() {
                             className="w-full p-2 rounded-lg text-xs font-mono"
                             style={{
                               background: '#0B0E11',
-                              border: '1px solid #2B3139',
+                              border: symbolsFormatError ? '1px solid #F6465D' : '1px solid #2B3139',
                               color: '#EAECEF',
                             }}
                             value={formState.symbols}
-                            onChange={(e) => handleFormChange('symbols', e.target.value)}
+                            onChange={(e) => handleSymbolsChange(e.target.value)}
                             rows={2}
                             placeholder={strategyHasDynamicCoins
                               ? tr('ui.dynamicCoinPlaceholder')
@@ -1596,7 +1672,7 @@ export function BacktestPage() {
                           {strategyHasDynamicCoins && formState.symbols && (
                             <button
                               type="button"
-                              onClick={() => handleFormChange('symbols', '')}
+                              onClick={() => handleSymbolsChange('')}
                               className="absolute top-2 right-2 px-2 py-1 rounded text-xs"
                               style={{ background: '#F0B90B', color: '#0B0E11' }}
                             >
@@ -1604,11 +1680,19 @@ export function BacktestPage() {
                             </button>
                           )}
                         </div>
+                        <p className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                          {symbolsFormatHint}
+                        </p>
+                        {symbolsFormatError && (
+                          <p className="text-xs mt-1" style={{ color: '#F6465D' }}>
+                            {symbolsFormatError}
+                          </p>
+                        )}
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => setWizardStep(2)}
+                        onClick={goToStep2}
                         disabled={!selectedModel?.enabled}
                         className="w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                         style={{ background: '#F0B90B', color: '#0B0E11' }}
