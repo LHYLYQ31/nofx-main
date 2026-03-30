@@ -1,0 +1,13 @@
+go 1.25.5
+
+use (
+	.
+	./cluster
+	./codec
+	./cqrs
+	./db
+	./lol
+	./num
+	./rp
+	./rxconfig
+)

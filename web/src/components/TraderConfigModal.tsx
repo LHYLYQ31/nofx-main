@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { AIModel, Exchange, CreateTraderRequest, Strategy } from '../types'
+import type { AIModel, Exchange, CreateTraderRequest, Strategy, TraderExecutionMode } from '../types'
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { toast } from 'sonner'
@@ -24,13 +24,14 @@ const EXCHANGE_REGISTRATION_LINKS: Record<string, { url: string; hasReferral?: b
 
 import type { TraderConfigData } from '../types'
 
-// 表单内部状态类�?
+// 表单内部状态类�?
 interface FormState {
   trader_id?: string
   trader_name: string
   ai_model: string
   exchange_id: string
   strategy_id: string
+  execution_mode: TraderExecutionMode
   is_cross_margin: boolean
   show_in_competition: boolean
   scan_interval_minutes: number
@@ -62,6 +63,7 @@ export function TraderConfigModal({
     ai_model: '',
     exchange_id: '',
     strategy_id: '',
+    execution_mode: 'live',
     is_cross_margin: true,
     show_in_competition: true,
     scan_interval_minutes: 3,
@@ -70,8 +72,9 @@ export function TraderConfigModal({
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [isFetchingBalance, setIsFetchingBalance] = useState(false)
   const [balanceFetchError, setBalanceFetchError] = useState<string>('')
+  const [canUseAlertOnly, setCanUseAlertOnly] = useState(false)
 
-  // 获取用户的策略列�?
+  // 获取用户的策略列�?
   useEffect(() => {
     const fetchStrategies = async () => {
       try {
@@ -100,6 +103,7 @@ export function TraderConfigModal({
       setFormData({
         ...traderData,
         strategy_id: traderData.strategy_id || '',
+        execution_mode: traderData.execution_mode || 'live',
       })
     } else if (!isEditMode) {
       setFormData({
@@ -107,12 +111,33 @@ export function TraderConfigModal({
         ai_model: availableModels[0]?.id || '',
         exchange_id: availableExchanges[0]?.id || '',
         strategy_id: '',
+        execution_mode: 'live',
         is_cross_margin: true,
         show_in_competition: true,
         scan_interval_minutes: 3,
       })
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
+
+  useEffect(() => {
+    const fetchExecutionModeCapability = async () => {
+      try {
+        const result = await httpClient.get<{ can_use_alert_only?: boolean }>('/api/traders/execution-mode-capability')
+        const allowed = !!(result.success && result.data?.can_use_alert_only)
+        setCanUseAlertOnly(allowed)
+        if (!allowed) {
+          setFormData(prev => ({ ...prev, execution_mode: 'live' }))
+        }
+      } catch (error) {
+        console.error('Failed to fetch execution mode capability:', error)
+        setCanUseAlertOnly(false)
+        setFormData(prev => ({ ...prev, execution_mode: 'live' }))
+      }
+    }
+    if (isOpen) {
+      fetchExecutionModeCapability()
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -161,6 +186,7 @@ export function TraderConfigModal({
         ai_model_id: formData.ai_model,
         exchange_id: formData.exchange_id,
         strategy_id: formData.strategy_id,
+        execution_mode: canUseAlertOnly ? formData.execution_mode : 'live',
         is_cross_margin: formData.is_cross_margin,
         show_in_competition: formData.show_in_competition,
         scan_interval_minutes: formData.scan_interval_minutes,
@@ -473,6 +499,41 @@ export function TraderConfigModal({
                     {t('hiddenInCompetition', language)}
                 </p>
               </div>
+
+              {canUseAlertOnly && (
+                <div>
+                  <label className="text-sm text-[#EAECEF] block mb-2">
+                    Execution Mode
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('execution_mode', 'live')}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${
+                        formData.execution_mode === 'live'
+                          ? 'bg-[#F0B90B] text-black'
+                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                      }`}
+                    >
+                      Live Trading
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('execution_mode', 'alert_only')}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${
+                        formData.execution_mode === 'alert_only'
+                          ? 'bg-[#F0B90B] text-black'
+                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                      }`}
+                    >
+                      Notify Only
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#848E9C] mt-1">
+                    Notify-only mode evaluates strategy in real time and sends Discord signals without placing real orders.
+                  </p>
+                </div>
+              )}
 
               {/* Initial Balance (Edit mode only) */}
               {isEditMode && (

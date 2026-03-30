@@ -182,6 +182,7 @@ func (s *Server) setupRoutes() {
 
 			// AI trader management
 			protected.GET("/my-traders", s.handleTraderList)
+			protected.GET("/traders/execution-mode-capability", s.handleGetTraderExecutionModeCapability)
 			protected.GET("/traders/:id/config", s.handleGetTraderConfig)
 			protected.POST("/traders", s.handleCreateTrader)
 			protected.PUT("/traders/:id", s.handleUpdateTrader)
@@ -454,6 +455,7 @@ type CreateTraderRequest struct {
 	AIModelID           string  `json:"ai_model_id" binding:"required"`
 	ExchangeID          string  `json:"exchange_id" binding:"required"`
 	StrategyID          string  `json:"strategy_id"` // Strategy ID (new version)
+	ExecutionMode       string  `json:"execution_mode"`
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`     // Pointer type, nil means use default value true
@@ -467,6 +469,39 @@ type CreateTraderRequest struct {
 	SystemPromptTemplate string `json:"system_prompt_template"` // System prompt template name
 	UseAI500             bool   `json:"use_ai500"`
 	UseOITop             bool   `json:"use_oi_top"`
+}
+
+func (s *Server) canUseAlertOnlyMode(email string) (bool, error) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return false, nil
+	}
+	return s.store.SignalNotifyUser().IsAllowed(normalized)
+}
+
+func (s *Server) resolveTraderExecutionMode(email string, requested string) (string, error) {
+	mode := store.NormalizeTraderExecutionMode(requested)
+	allowed, err := s.canUseAlertOnlyMode(email)
+	if err != nil {
+		return store.TraderExecutionModeLive, err
+	}
+	if !allowed {
+		return store.TraderExecutionModeLive, nil
+	}
+	return mode, nil
+}
+
+func (s *Server) handleGetTraderExecutionModeCapability(c *gin.Context) {
+	email := c.GetString("email")
+	allowed, err := s.canUseAlertOnlyMode(email)
+	if err != nil {
+		SafeInternalError(c, "Failed to query execution mode capability", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"can_use_alert_only":     allowed,
+		"default_execution_mode": store.TraderExecutionModeLive,
+	})
 }
 
 type ModelConfig struct {
@@ -544,6 +579,7 @@ type UpdateExchangeConfigRequest struct {
 // handleCreateTrader Create new AI trader
 func (s *Server) handleCreateTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
+	email := c.GetString("email")
 	role := c.GetString("role")
 	var req CreateTraderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -623,6 +659,13 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	scanIntervalMinutes := req.ScanIntervalMinutes
 	if scanIntervalMinutes < 3 {
 		scanIntervalMinutes = 3 // Default 3 minutes, not allowed to be less than 3
+	}
+
+	// Resolve execution mode (only signal notify allowlist users can use alert_only)
+	executionMode, err := s.resolveTraderExecutionMode(email, req.ExecutionMode)
+	if err != nil {
+		SafeInternalError(c, "Failed to verify execution mode permission", err)
+		return
 	}
 
 	// Query exchange actual balance, override user input
@@ -756,6 +799,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		CustomPrompt:         req.CustomPrompt,
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
+		ExecutionMode:        executionMode,
 		IsCrossMargin:        isCrossMargin,
 		ShowInCompetition:    showInCompetition,
 		ScanIntervalMinutes:  scanIntervalMinutes,
@@ -784,10 +828,11 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	logger.Infof("锟?Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"trader_id":   traderID,
-		"trader_name": req.Name,
-		"ai_model":    req.AIModelID,
-		"is_running":  false,
+		"trader_id":      traderID,
+		"trader_name":    req.Name,
+		"ai_model":       req.AIModelID,
+		"execution_mode": executionMode,
+		"is_running":     false,
 	})
 }
 
@@ -797,6 +842,7 @@ type UpdateTraderRequest struct {
 	AIModelID           string  `json:"ai_model_id" binding:"required"`
 	ExchangeID          string  `json:"exchange_id" binding:"required"`
 	StrategyID          string  `json:"strategy_id"` // Strategy ID (new version)
+	ExecutionMode       string  `json:"execution_mode"`
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`
@@ -813,6 +859,7 @@ type UpdateTraderRequest struct {
 // handleUpdateTrader Update trader configuration
 func (s *Server) handleUpdateTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
+	email := c.GetString("email")
 	role := c.GetString("role")
 	traderID := c.Param("id")
 
@@ -897,6 +944,17 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		strategyID = existingTrader.StrategyID
 	}
 
+	// Handle execution mode (if not provided, keep original value)
+	requestedExecutionMode := req.ExecutionMode
+	if strings.TrimSpace(requestedExecutionMode) == "" {
+		requestedExecutionMode = existingTrader.ExecutionMode
+	}
+	executionMode, err := s.resolveTraderExecutionMode(email, requestedExecutionMode)
+	if err != nil {
+		SafeInternalError(c, "Failed to verify execution mode permission", err)
+		return
+	}
+
 	// Update trader configuration
 	traderRecord := &store.Trader{
 		ID:                   traderID,
@@ -912,6 +970,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		CustomPrompt:         req.CustomPrompt,
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
+		ExecutionMode:        executionMode,
 		IsCrossMargin:        isCrossMargin,
 		ShowInCompetition:    showInCompetition,
 		ScanIntervalMinutes:  scanIntervalMinutes,
@@ -961,10 +1020,11 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	logger.Infof("锟?Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"trader_id":   traderID,
-		"trader_name": req.Name,
-		"ai_model":    req.AIModelID,
-		"message":     "Trader updated successfully",
+		"trader_id":      traderID,
+		"trader_name":    req.Name,
+		"ai_model":       req.AIModelID,
+		"execution_mode": executionMode,
+		"message":        "Trader updated successfully",
 	})
 }
 
@@ -2215,6 +2275,7 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"trader_name":         trader.Name,
 			"ai_model":            trader.AIModelID, // Use complete ID
 			"exchange_id":         trader.ExchangeID,
+			"execution_mode":      store.NormalizeTraderExecutionMode(trader.ExecutionMode),
 			"is_running":          isRunning,
 			"show_in_competition": trader.ShowInCompetition,
 			"initial_balance":     trader.InitialBalance,
@@ -2261,6 +2322,7 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"ai_model":              aiModelID,
 		"exchange_id":           traderConfig.ExchangeID,
 		"strategy_id":           traderConfig.StrategyID,
+		"execution_mode":        store.NormalizeTraderExecutionMode(traderConfig.ExecutionMode),
 		"initial_balance":       traderConfig.InitialBalance,
 		"scan_interval_minutes": traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":      traderConfig.BTCETHLeverage,

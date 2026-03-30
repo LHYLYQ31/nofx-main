@@ -1,0 +1,5 @@
+./doc.go
+./errors.go
+./frame.go
+./library.go
+./stacktrace.go

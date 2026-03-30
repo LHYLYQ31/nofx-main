@@ -34,6 +34,7 @@ import type {
   PositionHistoryResponse,
   StrategyWebhookItem,
   SignalNotifyUserItem,
+  TraderExecutionModeCapability,
   BacktestShowcaseUserItem,
   ShowcaseStrategyItem,
 } from '../types'
@@ -150,6 +151,14 @@ export const api = {
       `${API_BASE}/traders/${traderId}/config`
     )
     if (!result.success) throw new Error('获取交易员配置失败')
+    return result.data!
+  },
+
+  async getTraderExecutionModeCapability(): Promise<TraderExecutionModeCapability> {
+    const result = await httpClient.get<TraderExecutionModeCapability>(
+      `${API_BASE}/traders/execution-mode-capability`
+    )
+    if (!result.success) throw new Error('获取执行模式权限失败')
     return result.data!
   },
 

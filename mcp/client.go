@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -55,7 +56,7 @@ type Client struct {
 	MaxTokens  int  // Maximum tokens for AI response
 
 	httpClient *http.Client
-	logger     Logger // Logger (replaceable)
+	logger     Logger  // Logger (replaceable)
 	config     *Config // Config object (stores all configurations)
 
 	// hooks are used to implement dynamic dispatch (polymorphism)
@@ -237,6 +238,7 @@ func (client *Client) parseMCPResponse(body []byte) (string, error) {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -253,6 +255,19 @@ func (client *Client) parseMCPResponse(body []byte) (string, error) {
 		return "", fmt.Errorf("API returned empty response")
 	}
 
+	content := result.Choices[0].Message.Content
+	finishReason := strings.TrimSpace(result.Choices[0].FinishReason)
+	if finishReason == "" {
+		finishReason = "unknown"
+	}
+	client.logger.Infof("🧾 [MCP %s] finish_reason=%s, response_chars=%d",
+		client.String(), finishReason, utf8.RuneCountInString(content))
+
+	if result.Usage.TotalTokens > 0 {
+		client.logger.Infof("📊 [MCP %s] token_usage prompt=%d completion=%d total=%d",
+			client.String(), result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+	}
+
 	// Report token usage if callback is set
 	if TokenUsageCallback != nil && result.Usage.TotalTokens > 0 {
 		TokenUsageCallback(TokenUsage{
@@ -264,7 +279,7 @@ func (client *Client) parseMCPResponse(body []byte) (string, error) {
 		})
 	}
 
-	return result.Choices[0].Message.Content, nil
+	return content, nil
 }
 
 func (client *Client) buildUrl() string {

@@ -1,0 +1,17 @@
+./blockrun_base.go
+./blockrun_sol.go
+./claude_client.go
+./client.go
+./config.go
+./deepseek_client.go
+./gemini_client.go
+./grok_client.go
+./interface.go
+./kimi_client.go
+./logger.go
+./minimax_client.go
+./openai_client.go
+./options.go
+./qwen_client.go
+./request.go
+./request_builder.go

@@ -11,9 +11,12 @@ export interface SystemStatus {
   stop_until: string
   last_reset_time: string
   ai_provider: string
+  execution_mode?: TraderExecutionMode
   strategy_type?: 'ai_trading' | 'grid_trading'
   grid_symbol?: string
 }
+
+export type TraderExecutionMode = 'live' | 'alert_only'
 
 export interface AccountInfo {
   total_equity: number
@@ -100,6 +103,7 @@ export interface TraderInfo {
   show_in_competition?: boolean
   strategy_id?: string
   strategy_name?: string
+  execution_mode?: TraderExecutionMode
   custom_prompt?: string
   use_ai500?: boolean
   use_oi_top?: boolean
@@ -162,6 +166,7 @@ export interface CreateTraderRequest {
   name: string
   ai_model_id: string
   exchange_id: string
+  execution_mode?: TraderExecutionMode
   strategy_id?: string // 策略ID（新版，使用保存的策略配置）
   initial_balance?: number // 可选：创建时由后端自动获取，编辑时可手动更新
   scan_interval_minutes?: number
@@ -237,6 +242,7 @@ export interface TraderConfigData {
   trader_name: string
   ai_model: string
   exchange_id: string
+  execution_mode?: TraderExecutionMode
   strategy_id?: string  // 策略ID
   strategy_name?: string  // 策略名称
   is_cross_margin: boolean
@@ -253,6 +259,11 @@ export interface TraderConfigData {
   system_prompt_template?: string
   use_ai500?: boolean
   use_oi_top?: boolean
+}
+
+export interface TraderExecutionModeCapability {
+  can_use_alert_only: boolean
+  default_execution_mode: TraderExecutionMode
 }
 
 // Backtest types

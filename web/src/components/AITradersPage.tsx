@@ -417,6 +417,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         ai_model_id: data.ai_model_id,
         exchange_id: data.exchange_id,
         strategy_id: data.strategy_id,
+        execution_mode: data.execution_mode,
         initial_balance: data.initial_balance,
         scan_interval_minutes: data.scan_interval_minutes,
         is_cross_margin: data.is_cross_margin,
@@ -1132,6 +1133,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                           trader.ai_model.split('_').pop() || trader.ai_model
                         )}{' '}
                         Model • {getExchangeDisplayName(trader.exchange_id, allExchanges)}
+                      </div>
+                      <div className="mt-1">
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold"
+                          style={
+                            trader.execution_mode === 'alert_only'
+                              ? { background: 'rgba(99, 102, 241, 0.18)', color: '#818CF8' }
+                              : { background: 'rgba(14, 203, 129, 0.16)', color: '#0ECB81' }
+                          }
+                        >
+                          {trader.execution_mode === 'alert_only' ? '仅通知模式' : '实盘模式'}
+                        </span>
                       </div>
                     </div>
                   </div>

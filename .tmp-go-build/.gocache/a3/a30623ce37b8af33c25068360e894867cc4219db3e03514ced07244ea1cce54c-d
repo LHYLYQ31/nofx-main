@@ -1,0 +1,8 @@
+./auto_trader.go
+./auto_trader_grid.go
+./grid_regime.go
+./helpers.go
+./interface.go
+./position_rebuild.go
+./position_snapshot.go
+./signal_discord_notifier.go

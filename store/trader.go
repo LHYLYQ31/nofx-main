@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -27,6 +28,7 @@ type Trader struct {
 	StrategyID          string    `gorm:"column:strategy_id;default:''" json:"strategy_id"`
 	InitialBalance      float64   `gorm:"column:initial_balance;not null" json:"initial_balance"`
 	ScanIntervalMinutes int       `gorm:"column:scan_interval_minutes;default:3" json:"scan_interval_minutes"`
+	ExecutionMode       string    `gorm:"column:execution_mode;not null;default:live" json:"execution_mode"`
 	IsRunning           bool      `gorm:"column:is_running;default:false" json:"is_running"`
 	IsCrossMargin       bool      `gorm:"column:is_cross_margin;default:true" json:"is_cross_margin"`
 	ShowInCompetition   bool      `gorm:"column:show_in_competition;default:true" json:"show_in_competition"`
@@ -42,6 +44,20 @@ type Trader struct {
 	CustomPrompt         string `gorm:"column:custom_prompt;default:''" json:"custom_prompt,omitempty"`
 	OverrideBasePrompt   bool   `gorm:"column:override_base_prompt;default:false" json:"override_base_prompt,omitempty"`
 	SystemPromptTemplate string `gorm:"column:system_prompt_template;default:default" json:"system_prompt_template,omitempty"`
+}
+
+const (
+	TraderExecutionModeLive      = "live"
+	TraderExecutionModeAlertOnly = "alert_only"
+)
+
+func NormalizeTraderExecutionMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case TraderExecutionModeAlertOnly:
+		return TraderExecutionModeAlertOnly
+	default:
+		return TraderExecutionModeLive
+	}
 }
 
 // TableName returns the table name for Trader
@@ -110,11 +126,12 @@ func (s *TraderStore) Update(trader *Trader) error {
 		trader.ID, trader.Name, trader.AIModelID, trader.StrategyID)
 
 	updates := map[string]interface{}{
-		"name":           trader.Name,
-		"ai_model_id":    trader.AIModelID,
-		"exchange_id":    trader.ExchangeID,
-		"strategy_id":    trader.StrategyID,
-		"is_cross_margin": trader.IsCrossMargin,
+		"name":                trader.Name,
+		"ai_model_id":         trader.AIModelID,
+		"exchange_id":         trader.ExchangeID,
+		"strategy_id":         trader.StrategyID,
+		"execution_mode":      NormalizeTraderExecutionMode(trader.ExecutionMode),
+		"is_cross_margin":     trader.IsCrossMargin,
 		"show_in_competition": trader.ShowInCompetition,
 	}
 

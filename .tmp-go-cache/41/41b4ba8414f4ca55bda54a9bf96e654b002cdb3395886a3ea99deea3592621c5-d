@@ -1,0 +1,11 @@
+./accountResponse.go
+./assetResponse.go
+./brokerResponse.go
+./enum.go
+./lendingResponse.go
+./marketResponse.go
+./orderResponse.go
+./positionResponse.go
+./spotLeverageResponse.go
+./spotMarginResponse.go
+./userResponse.go

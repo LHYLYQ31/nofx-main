@@ -1744,7 +1744,7 @@ func (r *Runner) currentSideQuantity(symbol, side string) float64 {
 }
 
 // MinPositionSizeUSD is the minimum position size in USD to avoid dust positions
-const MinPositionSizeUSD = 10.0
+const MinPositionSizeUSD = 12.0
 
 func (r *Runner) determineQuantity(dec kernel.Decision, price float64) float64 {
 	snapshot := r.snapshotState()
@@ -1753,34 +1753,70 @@ func (r *Runner) determineQuantity(dec kernel.Decision, price float64) float64 {
 		equity = r.account.InitialBalance()
 	}
 
-	// Get leverage for this symbol
+	symbol := strings.ToUpper(strings.TrimSpace(dec.Symbol))
+	isBTCETH := symbol == "BTCUSDT" || symbol == "ETHUSDT"
+
+	// Resolve sizing constraints from strategy risk config.
+	minPositionSize := MinPositionSizeUSD
+	maxMarginUsage := 0.9
+	btcEthPosRatio := 5.0
+	altcoinPosRatio := 1.0
+	if cfg := r.strategyEngine.GetConfig(); cfg != nil {
+		rc := cfg.RiskControl
+		if rc.MinPositionSize > 0 {
+			minPositionSize = rc.MinPositionSize
+		}
+		if rc.MaxMarginUsage > 0 && rc.MaxMarginUsage <= 1 {
+			maxMarginUsage = rc.MaxMarginUsage
+		}
+		if rc.BTCETHMaxPositionValueRatio > 0 {
+			btcEthPosRatio = rc.BTCETHMaxPositionValueRatio
+		}
+		if rc.AltcoinMaxPositionValueRatio > 0 {
+			altcoinPosRatio = rc.AltcoinMaxPositionValueRatio
+		}
+	}
+
+	// Get leverage for this symbol.
 	leverage := r.resolveLeverage(dec.Leverage, dec.Symbol)
 	if leverage <= 0 {
 		leverage = 5
 	}
 
-	// Calculate available margin (leave some buffer for fees)
+	// Calculate available margin headroom by configured max margin usage.
 	availableCash := r.account.Cash()
-	maxMarginToUse := availableCash * 0.9 // Use max 90% of available cash
+	maxMarginToUse := availableCash * maxMarginUsage
 	maxPositionValue := maxMarginToUse * float64(leverage)
 
 	sizeUSD := dec.PositionSizeUSD
 	if sizeUSD <= 0 {
-		// Default to 5% of equity, but cap to available margin
+		// Default to 5% of equity, then cap by risk and affordability.
 		sizeUSD = 0.05 * equity
 	}
 
-	// Cap position size to what we can actually afford
+	// [CODE ENFORCED] Align with live validator: single-position value cap by equity ratio.
+	posRatio := altcoinPosRatio
+	if isBTCETH {
+		posRatio = btcEthPosRatio
+	}
+	maxByRiskRatio := equity * posRatio
+	if maxByRiskRatio > 0 && sizeUSD > maxByRiskRatio {
+		logger.Infof("Backtest: capping %s position from %.2f to %.2f by risk ratio %.2fx (equity: %.2f)",
+			dec.Symbol, sizeUSD, maxByRiskRatio, posRatio, equity)
+		sizeUSD = maxByRiskRatio
+	}
+
+	// Cap position size to what we can actually afford.
 	if sizeUSD > maxPositionValue {
-		logger.Infof("📊 Backtest: capping position from %.2f to %.2f (available margin: %.2f, leverage: %dx)",
+		logger.Infof("Backtest: capping position from %.2f to %.2f (available margin: %.2f, leverage: %dx)",
 			sizeUSD, maxPositionValue, maxMarginToUse, leverage)
 		sizeUSD = maxPositionValue
 	}
 
-	// Reject positions below minimum size to avoid dust positions
-	if sizeUSD < MinPositionSizeUSD {
-		logger.Infof("📊 Backtest: rejecting position size %.2f USD (below minimum %.2f USD)",
-			sizeUSD, MinPositionSizeUSD)
+	// Reject positions below minimum size.
+	if sizeUSD < minPositionSize {
+		logger.Infof("Backtest: rejecting %s position size %.2f USD (below minimum %.2f USD)",
+			dec.Symbol, sizeUSD, minPositionSize)
 		return 0
 	}
 
@@ -2564,26 +2600,10 @@ func (r *Runner) logDecision(record *store.DecisionRecord) error {
 }
 
 func buildBacktestDiscordNotifier(cfg BacktestConfig) *discordNotifier {
-	if cfg.RuntimeStore == nil {
-		return nil
-	}
-	webhookURL, ok, err := cfg.RuntimeStore.ResolveSignalWebhook(cfg.StrategyID, cfg.UserEmail)
-	if err != nil {
-		logger.Warnf("resolve backtest signal webhook failed run=%s strategy=%s email=%s: %v",
-			cfg.RunID, cfg.StrategyID, cfg.UserEmail, err)
-		return nil
-	}
-	if !ok {
-		return nil
-	}
-	username := strings.TrimSpace(cfg.DiscordUsername)
-	if username == "" {
-		username = "newmoneyclub"
-	}
-	return newDiscordNotifier(
-		webhookURL,
-		username,
-	)
+	_ = cfg
+	// Backtest should not emit Discord notifications. Notification delivery is
+	// reserved for dedicated notify mode in live trader flow.
+	return nil
 }
 
 func (r *Runner) notifyTradeSignal(evt TradeEvent, equity float64) {

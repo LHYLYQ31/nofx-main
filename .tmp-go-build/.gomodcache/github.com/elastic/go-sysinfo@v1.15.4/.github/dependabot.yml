@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions (/.github/workflows)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "22:00"
+    labels:
+      - dependencies
+      - skip-changelog
+    groups:
+      github-actions:
+        patterns:
+          - "*"

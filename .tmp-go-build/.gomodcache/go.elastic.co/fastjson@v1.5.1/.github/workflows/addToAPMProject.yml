@@ -1,0 +1,65 @@
+name: Add to APM Project
+on:
+  issues:
+    types:
+      - opened
+permissions:
+  contents: read
+
+jobs:
+  add_to_project:
+    runs-on: ubuntu-latest
+    name: Assign issues to APM Project for the Server Team
+    steps:
+      - name: Get token
+        id: get_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.OBS_AUTOMATION_APP_ID }}
+          private_key: ${{ secrets.OBS_AUTOMATION_APP_PEM }}
+          permissions: >-
+            {
+              "issues": "read",
+              "organization_projects": "write"
+            }
+      - uses: octokit/graphql-action@v2.x
+        id: add_to_project
+        with:
+          query: |
+            mutation add_to_project($projectid:ID!,$contentid:ID!) {
+              addProjectV2ItemById(input:{projectId:$projectid contentId:$contentid}) {
+                item {
+                  ... on ProjectV2Item {
+                    id
+                  }
+                }
+              }
+            }
+          projectid: ${{ env.PROJECT_ID }}
+          contentid: ${{ github.event.issue.node_id }}
+        env:
+          PROJECT_ID: "PVT_kwDOAGc3Zs0VSg"
+          GITHUB_TOKEN: ${{ steps.get_token.outputs.token }}
+      - uses: octokit/graphql-action@v2.x
+        id: label_team
+        with:
+          query: |
+            mutation label_team($projectid:ID!,$itemid:ID!,$fieldid:ID!,$value:String!) {
+              updateProjectV2ItemFieldValue(input: { projectId:$projectid itemId:$itemid fieldId:$fieldid value:{singleSelectOptionId: $value} }) {
+                projectV2Item {
+                  id
+                  content {
+                    ... on Issue {
+                      number
+                    }
+                  }
+                }
+              }
+            }
+          projectid: ${{ env.PROJECT_ID }}
+          itemid: ${{ fromJSON(steps.add_to_project.outputs.data).addProjectV2ItemById.item.id }}
+          fieldid: "PVTSSF_lADOAGc3Zs0VSs2scg"
+          value: "6c538d8a"
+        env:
+          PROJECT_ID: "PVT_kwDOAGc3Zs0VSg"
+          GITHUB_TOKEN: ${{ steps.get_token.outputs.token }}

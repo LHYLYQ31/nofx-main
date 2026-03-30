@@ -194,6 +194,7 @@ func (tm *TraderManager) GetComparisonData() (map[string]interface{}, error) {
 			"trader_name":     t.GetName(),
 			"ai_model":        t.GetAIModel(),
 			"exchange":        t.GetExchange(),
+			"execution_mode":  t.GetExecutionMode(),
 			"total_equity":    account["total_equity"],
 			"total_pnl":       account["total_pnl"],
 			"total_pnl_pct":   account["total_pnl_pct"],
@@ -320,6 +321,7 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 					"trader_name":            trader.GetName(),
 					"ai_model":               trader.GetAIModel(),
 					"exchange":               trader.GetExchange(),
+					"execution_mode":         trader.GetExecutionMode(),
 					"total_equity":           account["total_equity"],
 					"total_pnl":              account["total_pnl"],
 					"total_pnl_pct":          account["total_pnl_pct"],
@@ -336,6 +338,7 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 					"trader_name":            trader.GetName(),
 					"ai_model":               trader.GetAIModel(),
 					"exchange":               trader.GetExchange(),
+					"execution_mode":         trader.GetExecutionMode(),
 					"total_equity":           0.0,
 					"total_pnl":              0.0,
 					"total_pnl_pct":          0.0,
@@ -353,6 +356,7 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 					"trader_name":            trader.GetName(),
 					"ai_model":               trader.GetAIModel(),
 					"exchange":               trader.GetExchange(),
+					"execution_mode":         trader.GetExecutionMode(),
 					"total_equity":           0.0,
 					"total_pnl":              0.0,
 					"total_pnl_pct":          0.0,
@@ -416,10 +420,12 @@ func (tm *TraderManager) RemoveTrader(traderID string) {
 
 	if t, exists := tm.traders[traderID]; exists {
 		// Stop the trader if it's running (this ensures the goroutine exits)
-		status := t.GetStatus()
-		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			logger.Infof("�?Stopping trader %s before removing from memory...", traderID)
-			t.Stop()
+		if t != nil {
+			status := t.GetStatus()
+			if isRunning, ok := status["is_running"].(bool); ok && isRunning {
+				logger.Infof("�?Stopping trader %s before removing from memory...", traderID)
+				t.Stop()
+			}
 		}
 		delete(tm.traders, traderID)
 		logger.Infof("�?Trader %s removed from memory", traderID)
@@ -665,6 +671,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		CustomModelName:       aiModelCfg.CustomModelName,
 		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        traderCfg.InitialBalance,
+		ExecutionMode:         store.NormalizeTraderExecutionMode(traderCfg.ExecutionMode),
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		ShowInCompetition:     traderCfg.ShowInCompetition,
 		StrategyConfig:        strategyConfig,
