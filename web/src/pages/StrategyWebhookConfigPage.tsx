@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BellRing, Plus, RefreshCw, Save, Trash2, Users } from 'lucide-react'
+import { useLanguage } from '../contexts/LanguageContext'
 import { api } from '../lib/api'
 import { notify } from '../lib/notify'
 import type {
@@ -10,6 +11,10 @@ import type {
 } from '../types'
 
 export function StrategyWebhookConfigPage() {
+  const { language } = useLanguage()
+  const tr = (zh: string, en: string, id: string = en) =>
+    language === 'zh' ? zh : language === 'id' ? id : en
+
   const [loading, setLoading] = useState(true)
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [webhooks, setWebhooks] = useState<StrategyWebhookItem[]>([])
@@ -47,7 +52,7 @@ export function StrategyWebhookConfigPage() {
         setSelectedStrategyID(st[0].id)
       }
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to load webhook settings')
+      notify.error(err instanceof Error ? err.message : tr('加载 Webhook 配置失败', 'Failed to load webhook settings', 'Gagal memuat pengaturan webhook'))
     } finally {
       setLoading(false)
     }
@@ -61,11 +66,11 @@ export function StrategyWebhookConfigPage() {
     const strategyID = selectedStrategyID.trim()
     const url = webhookURL.trim()
     if (!strategyID) {
-      notify.error('Please select a strategy')
+      notify.error(tr('请选择策略', 'Please select a strategy', 'Silakan pilih strategi'))
       return
     }
     if (!url) {
-      notify.error('Please input Discord webhook URL')
+      notify.error(tr('请输入 Discord webhook URL', 'Please input Discord webhook URL', 'Silakan isi URL webhook Discord'))
       return
     }
     try {
@@ -74,37 +79,37 @@ export function StrategyWebhookConfigPage() {
         webhook_url: url,
         enabled: webhookEnabled,
       })
-      notify.success('Strategy webhook saved')
+      notify.success(tr('策略 Webhook 已保存', 'Strategy webhook saved', 'Webhook strategi tersimpan'))
       setWebhookURL('')
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to save strategy webhook')
+      notify.error(err instanceof Error ? err.message : tr('保存策略 Webhook 失败', 'Failed to save strategy webhook', 'Gagal menyimpan webhook strategi'))
     }
   }
 
   const removeWebhook = async (strategyID: string) => {
     try {
       await api.deleteAdminStrategyWebhook(strategyID)
-      notify.success('Strategy webhook deleted')
+      notify.success(tr('策略 Webhook 已删除', 'Strategy webhook deleted', 'Webhook strategi dihapus'))
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to delete strategy webhook')
+      notify.error(err instanceof Error ? err.message : tr('删除策略 Webhook 失败', 'Failed to delete strategy webhook', 'Gagal menghapus webhook strategi'))
     }
   }
 
   const saveNotifyUser = async () => {
     const email = emailInput.trim().toLowerCase()
     if (!email || !email.includes('@')) {
-      notify.error('Please input a valid email')
+      notify.error(tr('请输入有效邮箱', 'Please input a valid email', 'Silakan isi email yang valid'))
       return
     }
     try {
       await api.upsertAdminSignalNotifyUser({ email, enabled: true })
-      notify.success('Signal notify user saved')
+      notify.success(tr('信号通知用户已保存', 'Signal notify user saved', 'Pengguna notifikasi sinyal tersimpan'))
       setEmailInput('')
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to save signal notify user')
+      notify.error(err instanceof Error ? err.message : tr('保存信号通知用户失败', 'Failed to save signal notify user', 'Gagal menyimpan pengguna notifikasi sinyal'))
     }
   }
 
@@ -113,33 +118,33 @@ export function StrategyWebhookConfigPage() {
       await api.upsertAdminSignalNotifyUser({ email: item.email, enabled: !item.enabled })
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to update signal notify user')
+      notify.error(err instanceof Error ? err.message : tr('更新信号通知用户失败', 'Failed to update signal notify user', 'Gagal memperbarui pengguna notifikasi sinyal'))
     }
   }
 
   const removeNotifyUser = async (email: string) => {
     try {
       await api.deleteAdminSignalNotifyUser(email)
-      notify.success('Signal notify user deleted')
+      notify.success(tr('信号通知用户已删除', 'Signal notify user deleted', 'Pengguna notifikasi sinyal dihapus'))
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to delete signal notify user')
+      notify.error(err instanceof Error ? err.message : tr('删除信号通知用户失败', 'Failed to delete signal notify user', 'Gagal menghapus pengguna notifikasi sinyal'))
     }
   }
 
   const saveShowcaseUser = async () => {
     const email = showcaseEmailInput.trim().toLowerCase()
     if (!email || !email.includes('@')) {
-      notify.error('Please input a valid showcase email')
+      notify.error(tr('请输入有效展示邮箱', 'Please input a valid showcase email', 'Silakan isi email showcase yang valid'))
       return
     }
     try {
       await api.upsertAdminBacktestShowcaseUser({ email, enabled: true })
-      notify.success('Backtest showcase user saved')
+      notify.success(tr('回测展示账号已保存', 'Backtest showcase user saved', 'Akun showcase backtest tersimpan'))
       setShowcaseEmailInput('')
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to save backtest showcase user')
+      notify.error(err instanceof Error ? err.message : tr('保存回测展示账号失败', 'Failed to save backtest showcase user', 'Gagal menyimpan akun showcase backtest'))
     }
   }
 
@@ -148,17 +153,17 @@ export function StrategyWebhookConfigPage() {
       await api.upsertAdminBacktestShowcaseUser({ email: item.email, enabled: !item.enabled })
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to update backtest showcase user')
+      notify.error(err instanceof Error ? err.message : tr('更新回测展示账号失败', 'Failed to update backtest showcase user', 'Gagal memperbarui akun showcase backtest'))
     }
   }
 
   const removeShowcaseUser = async (email: string) => {
     try {
       await api.deleteAdminBacktestShowcaseUser(email)
-      notify.success('Backtest showcase user deleted')
+      notify.success(tr('回测展示账号已删除', 'Backtest showcase user deleted', 'Akun showcase backtest dihapus'))
       await loadAll()
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to delete backtest showcase user')
+      notify.error(err instanceof Error ? err.message : tr('删除回测展示账号失败', 'Failed to delete backtest showcase user', 'Gagal menghapus akun showcase backtest'))
     }
   }
 
@@ -170,7 +175,7 @@ export function StrategyWebhookConfigPage() {
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold" style={{ color: '#EAECEF' }}>
-            Strategy Discord Webhook
+            {tr('策略 Discord Webhook', 'Strategy Discord Webhook', 'Webhook Discord Strategi')}
           </h2>
           <button
             type="button"
@@ -179,7 +184,7 @@ export function StrategyWebhookConfigPage() {
             style={{ borderColor: '#2B3139', color: '#AEB4BC' }}
           >
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {tr('刷新', 'Refresh', 'Muat Ulang')}
           </button>
         </div>
 
@@ -209,7 +214,7 @@ export function StrategyWebhookConfigPage() {
               checked={webhookEnabled}
               onChange={(e) => setWebhookEnabled(e.target.checked)}
             />
-            Enabled
+            {tr('启用', 'Enabled', 'Aktif')}
           </label>
         </div>
 
@@ -220,14 +225,14 @@ export function StrategyWebhookConfigPage() {
           style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
         >
           <Save className="h-4 w-4" />
-          Save Strategy Webhook
+          {tr('保存策略 Webhook', 'Save Strategy Webhook', 'Simpan Webhook Strategi')}
         </button>
 
         <div className="mt-4 space-y-2">
           {loading ? (
-            <div style={{ color: '#848E9C' }}>Loading...</div>
+            <div style={{ color: '#848E9C' }}>{tr('加载中...', 'Loading...', 'Memuat...')}</div>
           ) : webhooks.length === 0 ? (
-            <div style={{ color: '#848E9C' }}>No strategy webhook settings</div>
+            <div style={{ color: '#848E9C' }}>{tr('暂无策略 Webhook 配置', 'No strategy webhook settings', 'Belum ada pengaturan webhook strategi')}</div>
           ) : (
             webhooks.map((item) => (
               <div
@@ -245,7 +250,7 @@ export function StrategyWebhookConfigPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs" style={{ color: item.enabled ? '#0ECB81' : '#F6465D' }}>
-                    {item.enabled ? 'Enabled' : 'Disabled'}
+                    {item.enabled ? tr('启用', 'Enabled', 'Aktif') : tr('禁用', 'Disabled', 'Nonaktif')}
                   </span>
                   <button
                     type="button"
@@ -268,7 +273,7 @@ export function StrategyWebhookConfigPage() {
       >
         <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
           <BellRing className="h-5 w-5" />
-          Signal Notify User List
+          {tr('信号通知用户列表', 'Signal Notify User List', 'Daftar Pengguna Notifikasi Sinyal')}
         </h2>
         <div className="mb-4 flex gap-3">
           <input
@@ -285,12 +290,12 @@ export function StrategyWebhookConfigPage() {
             style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
           >
             <Plus className="h-4 w-4" />
-            Add
+            {tr('添加', 'Add', 'Tambah')}
           </button>
         </div>
         <div className="space-y-2">
           {users.length === 0 ? (
-            <div style={{ color: '#848E9C' }}>No notify users</div>
+            <div style={{ color: '#848E9C' }}>{tr('暂无通知用户', 'No notify users', 'Belum ada pengguna notifikasi')}</div>
           ) : (
             users.map((u) => (
               <div
@@ -306,7 +311,7 @@ export function StrategyWebhookConfigPage() {
                     className="rounded border px-3 py-1 text-xs"
                     style={{ borderColor: '#2B3139', color: u.enabled ? '#0ECB81' : '#F6465D' }}
                   >
-                    {u.enabled ? 'Enabled' : 'Disabled'}
+                    {u.enabled ? tr('启用', 'Enabled', 'Aktif') : tr('禁用', 'Disabled', 'Nonaktif')}
                   </button>
                   <button
                     type="button"
@@ -329,10 +334,14 @@ export function StrategyWebhookConfigPage() {
       >
         <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
           <Users className="h-5 w-5" />
-          Backtest Showcase Accounts
+          {tr('回测展示账号', 'Backtest Showcase Accounts', 'Akun Showcase Backtest')}
         </h2>
         <p className="mb-4 text-sm" style={{ color: '#848E9C' }}>
-          Showcase page will aggregate runs from all enabled accounts below.
+          {tr(
+            '展示页会聚合下方所有已启用账号的运行结果。',
+            'Showcase page will aggregate runs from all enabled accounts below.',
+            'Halaman showcase akan menggabungkan run dari semua akun aktif di bawah ini.'
+          )}
         </p>
         <div className="mb-4 flex gap-3">
           <input
@@ -349,12 +358,12 @@ export function StrategyWebhookConfigPage() {
             style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
           >
             <Plus className="h-4 w-4" />
-            Add
+            {tr('添加', 'Add', 'Tambah')}
           </button>
         </div>
         <div className="space-y-2">
           {showcaseUsers.length === 0 ? (
-            <div style={{ color: '#848E9C' }}>No backtest showcase accounts</div>
+            <div style={{ color: '#848E9C' }}>{tr('暂无回测展示账号', 'No backtest showcase accounts', 'Belum ada akun showcase backtest')}</div>
           ) : (
             showcaseUsers.map((u) => (
               <div
@@ -370,7 +379,7 @@ export function StrategyWebhookConfigPage() {
                     className="rounded border px-3 py-1 text-xs"
                     style={{ borderColor: '#2B3139', color: u.enabled ? '#0ECB81' : '#F6465D' }}
                   >
-                    {u.enabled ? 'Enabled' : 'Disabled'}
+                    {u.enabled ? tr('启用', 'Enabled', 'Aktif') : tr('禁用', 'Disabled', 'Nonaktif')}
                   </button>
                   <button
                     type="button"
