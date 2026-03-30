@@ -1,3 +1,0 @@
-# add 'agent-go' label to all new issues
-agent-go:
-  - '.*'

@@ -1,3 +1,0 @@
-```release-note:enhancement
-Adds NativeArchitecture to HostInfo to allow applications to detect whether they are running in emulation.
-```

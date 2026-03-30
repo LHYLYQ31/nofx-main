@@ -1,3 +1,0 @@
-```release-note:bug
-aix: Added missing method FQDN for types.Host implementation.
-```

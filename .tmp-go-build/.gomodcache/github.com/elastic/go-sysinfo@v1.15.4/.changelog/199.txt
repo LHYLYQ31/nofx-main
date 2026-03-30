@@ -1,3 +1,0 @@
-```release-note:enhancement
-Allow FQDN lookup functions to take a context.
-```

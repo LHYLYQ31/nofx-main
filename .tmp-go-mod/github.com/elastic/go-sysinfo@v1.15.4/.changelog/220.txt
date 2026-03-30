@@ -1,3 +1,0 @@
-```release-note:enhancement
-Replace usages of the deprecated io/ioutil package.
-```

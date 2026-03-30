@@ -1,3 +1,0 @@
-```release-note:enhancement
-darwin: Remove duplicate `-lproc` linker flag to avoid a warning on macOS Sonoma.
-```

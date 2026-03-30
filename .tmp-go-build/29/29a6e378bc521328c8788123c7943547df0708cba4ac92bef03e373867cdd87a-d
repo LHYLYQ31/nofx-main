@@ -1,7 +1,0 @@
-./container.go
-./doc.go
-./machineid.go
-./os.go
-./procnet.go
-./util.go
-./vmstat.go

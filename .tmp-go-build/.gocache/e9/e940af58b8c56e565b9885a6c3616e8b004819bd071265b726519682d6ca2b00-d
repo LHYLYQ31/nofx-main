@@ -1,4 +1,0 @@
-./hooks.go
-./http_client_hook.go
-./ip_hook.go
-./trader_hook.go

@@ -1,3 +1,0 @@
-```release-note:bug
-linux: Remove newline from HostInfo.NativeArchitecture value.
-```

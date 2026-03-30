@@ -128,3 +128,12 @@ PR_DESCRIPTION.md
 # Local build/runtime caches
 .cache/
 .runlogs/
+
+# Local temporary build caches (keep local, never commit)
+.tmp-go-build/
+.tmp-go-cache/
+.tmp-go-mod/
+.tmp_bt_decisions.txt
+.tmp_hello.go
+.tmp_strategy_config.json
+backtests/

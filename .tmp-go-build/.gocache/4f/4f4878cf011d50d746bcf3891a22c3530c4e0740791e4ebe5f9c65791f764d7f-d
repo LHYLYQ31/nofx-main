@@ -1,8 +1,0 @@
-./admin.go
-./backtest.go
-./crypto_handler.go
-./debate.go
-./errors.go
-./server.go
-./strategy.go
-./utils.go

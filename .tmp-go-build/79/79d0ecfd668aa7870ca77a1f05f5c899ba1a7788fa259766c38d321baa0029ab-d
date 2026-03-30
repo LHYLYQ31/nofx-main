@@ -1,5 +1,0 @@
-./engine.go
-./formatter.go
-./grid_engine.go
-./prompt_builder.go
-./schema.go

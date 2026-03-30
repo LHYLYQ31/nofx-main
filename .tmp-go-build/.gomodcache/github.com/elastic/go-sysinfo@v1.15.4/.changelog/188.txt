@@ -1,3 +1,0 @@
-```release-note:enhancement
-aix: Added mappings for AIX host memory information
-```

@@ -1,8 +1,0 @@
-./base_coin.go
-./coinank_http.go
-./instrument_agg_rank.go
-./instruments.go
-./kline.go
-./liquidation.go
-./net_positions.go
-./open_interest.go

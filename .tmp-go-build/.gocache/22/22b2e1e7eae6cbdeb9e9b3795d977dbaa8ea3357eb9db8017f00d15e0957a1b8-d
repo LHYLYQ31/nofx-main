@@ -1,8 +1,0 @@
-./constants.go
-./doc.go
-./kernel32.go
-./ntdll.go
-./psapi.go
-./utf16.go
-./version.go
-./zsyscall_windows.go

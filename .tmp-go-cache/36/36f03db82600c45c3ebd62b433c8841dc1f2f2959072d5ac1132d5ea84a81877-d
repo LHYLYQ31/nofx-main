@@ -1,5 +1,0 @@
-./RequestHeapFrame.go
-./RequestUnitsDeprecated.go
-./SetComputeUnitLimit.go
-./SetComputeUnitPrice.go
-./instruction.go

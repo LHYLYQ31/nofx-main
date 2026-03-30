@@ -1,7 +1,0 @@
-./exchange.go
-./instrument_agg_sort_by.go
-./interval.go
-./product_type.go
-./side.go
-./sort_type.go
-./url.go
