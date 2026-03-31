@@ -77,6 +77,16 @@ export default function HeaderBar({
     }
   }, [])
 
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [mobileMenuOpen])
+
   return (
     <nav className="fixed top-0 w-full z-50 header-bar">
       <div className="flex items-center justify-between h-16 px-4 sm:px-6 max-w-[1920px] mx-auto">
@@ -88,7 +98,7 @@ export default function HeaderBar({
           className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
         >
           <img src={BRANDING.logoSrc} alt={BRANDING.logoAlt} className="w-7 h-7" />
-          <span className="text-lg font-bold text-nofx-gold">
+          <span className="text-base sm:text-lg font-bold text-nofx-gold max-w-[180px] truncate">
             {BRANDING.productName}
           </span>
         </div>
@@ -326,7 +336,7 @@ export default function HeaderBar({
         {/* Mobile Menu Button */}
         <motion.button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden text-nofx-text-muted hover:text-white"
+          className="md:hidden text-nofx-text-muted hover:text-white w-10 h-10 flex items-center justify-center"
           whileTap={{ scale: 0.9 }}
         >
           {mobileMenuOpen ? (
@@ -352,7 +362,8 @@ export default function HeaderBar({
               initial={{ y: -20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.1, duration: 0.3 }}
-              className="flex flex-col h-[calc(100vh-64px)] overflow-y-auto px-6 py-8"
+              className="flex flex-col h-[calc(100dvh-64px)] overflow-y-auto px-6 py-8"
+              style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 2rem)' }}
             >
               {/* Navigation Links */}
               <div className="flex flex-col gap-6 mb-12">
