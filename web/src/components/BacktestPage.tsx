@@ -1453,7 +1453,7 @@ export function BacktestPage() {
   // Render
   return (
     <DeepVoidBackground className="py-8" disableAnimation>
-      <div className="w-full px-4 md:px-8 space-y-6">
+      <div className="w-full px-3 sm:px-4 md:px-8 space-y-6">
         {/* Toast */}
         <AnimatePresence>
           {toast && (
@@ -1503,7 +1503,7 @@ export function BacktestPage() {
           {/* Left Panel - Config / History */}
           <div className="space-y-4">
             {/* Wizard */}
-            <div className="binance-card p-5">
+            <div className="binance-card p-4 sm:p-5">
               <div className="flex items-center gap-2 mb-4">
                 {[1, 2, 3].map((step) => (
                   <div key={step} className="flex items-center">
@@ -1737,7 +1737,7 @@ export function BacktestPage() {
                             )
                           })}
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <input
                             type="datetime-local"
                             className="p-2 rounded-lg text-xs"
@@ -1786,7 +1786,7 @@ export function BacktestPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs mb-1" style={{ color: '#848E9C' }}>
                             {tr('form.initialBalanceLabel')}
@@ -1860,7 +1860,7 @@ export function BacktestPage() {
                       exit={{ opacity: 0, x: -20 }}
                       className="space-y-4"
                     >
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs mb-1" style={{ color: '#848E9C' }}>
                             {tr('form.btcEthLeverageLabel')}
@@ -2412,12 +2412,12 @@ export function BacktestPage() {
 
                 {/* Tabs */}
                 <div className="binance-card">
-                  <div className="flex border-b" style={{ borderColor: '#2B3139' }}>
+                  <div className="flex border-b overflow-x-auto no-scrollbar" style={{ borderColor: '#2B3139' }}>
                     {(['overview', 'chart', 'trades', 'decisions'] as ViewTab[]).map((tab) => (
                       <button
                         key={tab}
                         onClick={() => setViewTab(tab)}
-                        className="px-4 py-3 text-sm font-medium transition-all relative"
+                        className="px-4 py-3 text-sm font-medium transition-all relative whitespace-nowrap"
                         style={{ color: viewTab === tab ? '#F0B90B' : '#848E9C' }}
                       >
                         {tab === 'overview'
@@ -2438,7 +2438,7 @@ export function BacktestPage() {
                     ))}
                   </div>
 
-                  <div className="p-4">
+                  <div className="p-3 sm:p-4">
                     <AnimatePresence mode="wait">
                       {viewTab === 'overview' && (
                         <motion.div

@@ -150,7 +150,7 @@ export function BacktestShowcasePage() {
 
   return (
     <div className="min-h-screen" style={{ background: '#0B0E11', color: '#EAECEF' }}>
-      <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-6">
+      <div className="mx-auto w-full max-w-[1440px] px-3 sm:px-4 py-5 md:py-6 md:px-6">
         <section
           className="rounded-2xl p-5 md:p-6"
           style={{
@@ -233,7 +233,7 @@ export function BacktestShowcasePage() {
                   <article
                     key={`${card.key}-${idx}`}
                     onClick={() => card.runId && setSelectedRunId(card.runId)}
-                    className="w-[220px] flex-shrink-0 overflow-hidden rounded-xl transition-all"
+                    className="w-[190px] sm:w-[220px] flex-shrink-0 overflow-hidden rounded-xl transition-all"
                     style={{
                       background: '#0B0E11',
                       border: '1px solid #2B3139',
@@ -312,7 +312,7 @@ export function BacktestShowcasePage() {
               ))}
             </div>
 
-            <div className="max-h-[680px] space-y-2 overflow-y-auto pr-1">
+            <div className="max-h-[50vh] xl:max-h-[680px] space-y-2 overflow-y-auto pr-1">
               {runsLoading && <div className="py-8 text-center text-sm" style={{ color: '#848E9C' }}>{isZh ? '加载中...' : 'Loading...'}</div>}
               {!runsLoading && showcaseRuns.length === 0 && (
                 <div className="py-8 text-center text-sm" style={{ color: '#848E9C' }}>
