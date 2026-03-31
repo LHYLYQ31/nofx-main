@@ -285,6 +285,8 @@ export interface BacktestRunMetadata {
   strategy_id?: string;
   strategy_name?: string;
   symbols?: string[];
+  start_ts?: number;
+  end_ts?: number;
   last_error?: string;
   version: number;
   state: string;
@@ -341,6 +343,8 @@ export interface ShowcaseWallCardItem {
   showcase_run_id?: string;
   run_id?: string;
   state?: string;
+  start_ts?: number;
+  end_ts?: number;
   symbol?: string;
   equity_last?: number;
   max_drawdown_pct?: number;

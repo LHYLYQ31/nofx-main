@@ -167,6 +167,8 @@ func (s *Server) handlePublicBacktestShowcaseWall(c *gin.Context) {
 			"showcase_run_id":  configuredRunID,
 			"run_id":           "",
 			"state":            "",
+			"start_ts":         int64(0),
+			"end_ts":           int64(0),
 			"symbol":           "",
 			"equity_last":      0.0,
 			"max_drawdown_pct": 0.0,
@@ -178,6 +180,10 @@ func (s *Server) handlePublicBacktestShowcaseWall(c *gin.Context) {
 		if run != nil {
 			card["run_id"] = run.RunID
 			card["state"] = string(run.State)
+			if cfg, cfgErr := backtest.LoadConfig(run.RunID); cfgErr == nil && cfg != nil {
+				card["start_ts"] = cfg.StartTS
+				card["end_ts"] = cfg.EndTS
+			}
 			if len(run.Symbols) > 0 {
 				card["symbol"] = run.Symbols[0]
 			}
@@ -286,6 +292,8 @@ type backtestRunListItem struct {
 	StrategyID   string   `json:"strategy_id,omitempty"`
 	StrategyName string   `json:"strategy_name,omitempty"`
 	Symbols      []string `json:"symbols,omitempty"`
+	StartTS      int64    `json:"start_ts,omitempty"`
+	EndTS        int64    `json:"end_ts,omitempty"`
 }
 
 func (s *Server) handleBacktestStart(c *gin.Context) {
@@ -731,6 +739,8 @@ func (s *Server) decorateBacktestRunListItems(runs []*backtest.RunMetadata) []*b
 		}
 
 		item.Symbols = append([]string(nil), cfg.Symbols...)
+		item.StartTS = cfg.StartTS
+		item.EndTS = cfg.EndTS
 		item.StrategyID = strings.TrimSpace(cfg.StrategyID)
 		if item.StrategyID == "" {
 			items = append(items, item)

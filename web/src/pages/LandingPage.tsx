@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { api } from '../lib/api'
 import type { ShowcaseWallCardItem } from '../types'
+import { formatBacktestDays } from '../utils/backtestRun'
 
 const fallbackWallCards: ShowcaseWallCardItem[] = [
   { strategy_id: 'fallback-1', strategy_name: '趋势跟随', total_return_pct: 18.5, max_drawdown_pct: 12.4, win_rate: 62.0 },
@@ -170,7 +171,8 @@ export function LandingPage() {
                   <p className="mt-2 text-sm font-semibold text-[#F0B90B]">
                     {isZh ? '总收益率' : 'Return'} {Number(card.total_return_pct || 0).toFixed(2)}% |{' '}
                     {isZh ? '最大回撤' : 'Max DD'} {Number(card.max_drawdown_pct || 0).toFixed(2)}% |{' '}
-                    {isZh ? '胜率' : 'Win'} {Number(card.win_rate || 0).toFixed(1)}%
+                    {isZh ? '胜率' : 'Win'} {Number(card.win_rate || 0).toFixed(1)}% |{' '}
+                    {isZh ? '回测天数' : 'Days'} {formatBacktestDays(card.start_ts, card.end_ts)}
                   </p>
                   <p className="mt-2 text-sm text-[#AFC1D4] truncate">
                     {clickable

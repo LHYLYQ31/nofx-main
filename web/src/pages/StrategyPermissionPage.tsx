@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { notify } from '../lib/notify'
 import { httpClient } from '../lib/httpClient'
 import { getPremiumStrategyName } from '../utils/displayName'
+import { formatBacktestDays } from '../utils/backtestRun'
 
 interface AdminUser {
   id: string
@@ -678,7 +679,7 @@ export function StrategyPermissionPage() {
                           <option value="">{language === 'zh' ? '请选择回测 run' : 'Select run'}</option>
                           {runOptions.map((run) => (
                             <option key={run.run_id} value={run.run_id}>
-                              {run.run_id.slice(0, 12)}... | {run.state} | ${(run.summary?.equity_last || 0).toFixed(2)}
+                              {run.run_id.slice(0, 12)}... | {run.state} | {formatBacktestDays(run.start_ts, run.end_ts)} | ${(run.summary?.equity_last || 0).toFixed(2)}
                             </option>
                           ))}
                         </select>

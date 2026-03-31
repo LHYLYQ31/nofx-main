@@ -45,6 +45,7 @@ import { t } from '../i18n/translations'
 import { confirmToast } from '../lib/notify'
 import { DecisionCard } from './DecisionCard'
 import { MetricTooltip } from './MetricTooltip'
+import { formatBacktestDays } from '../utils/backtestRun'
 import type {
   BacktestStatusPayload,
   BacktestPositionStatus,
@@ -2381,7 +2382,7 @@ export function BacktestPage() {
                       </div>
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-xs" style={{ color: '#848E9C' }}>
-                          {run.summary.progress_pct.toFixed(0)}% | ${run.summary.equity_last.toFixed(0)}
+                          {run.summary.progress_pct.toFixed(0)}% | {formatBacktestDays(run.start_ts, run.end_ts)} | ${run.summary.equity_last.toFixed(0)}
                         </span>
                         <span className="text-[11px] truncate max-w-[50%]" style={{ color: '#848E9C' }}>
                           币种: {formatRunSymbols(run.symbols)}
@@ -2448,7 +2449,7 @@ export function BacktestPage() {
                           </span>
                           {selectedRun?.summary.decision_tf && (
                             <span className="text-xs" style={{ color: '#848E9C' }}>
-                              {selectedRun.summary.decision_tf} | {selectedRun.summary.symbol_count} {tr('ui.symbols')}
+                              {selectedRun.summary.decision_tf} | {formatBacktestDays(selectedRun.start_ts, selectedRun.end_ts)} | {selectedRun.summary.symbol_count} {tr('ui.symbols')}
                             </span>
                           )}
                         </div>

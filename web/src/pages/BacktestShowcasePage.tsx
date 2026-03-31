@@ -36,6 +36,7 @@ import {
 import { api } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getPremiumStrategyName } from '../utils/displayName'
+import { formatBacktestDays } from '../utils/backtestRun'
 import type {
   BacktestEquityPoint,
   BacktestKline,
@@ -351,6 +352,9 @@ export function BacktestShowcasePage() {
                 <header>
                   <div className="text-xs" style={{ color: '#848E9C' }}>RUN ID</div>
                   <h2 className="mt-1 font-mono text-sm md:text-base">{selectedRun.run_id}</h2>
+                  <div className="mt-1 text-xs" style={{ color: '#848E9C' }}>
+                    {isZh ? '回测天数' : 'Backtest Days'}: {formatBacktestDays(selectedRun.start_ts, selectedRun.end_ts)}
+                  </div>
                 </header>
 
                 <section className="grid gap-3 md:grid-cols-4">
@@ -887,7 +891,7 @@ function RunCard({ run, active, onClick }: { run: BacktestRunMetadata; active: b
         {getPremiumStrategyName(run.strategy_name || 'Manual')}
       </div>
       <div className="mt-2 flex items-center justify-between text-[11px]" style={{ color: '#848E9C' }}>
-        <span>DD {(run.summary?.max_drawdown_pct ?? 0).toFixed(2)}%</span>
+        <span>DD {(run.summary?.max_drawdown_pct ?? 0).toFixed(2)}% | {formatBacktestDays(run.start_ts, run.end_ts)}</span>
         <span>${(run.summary?.equity_last ?? 0).toFixed(2)}</span>
       </div>
     </button>
