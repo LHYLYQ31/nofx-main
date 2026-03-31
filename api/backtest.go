@@ -1202,6 +1202,7 @@ func inferTradeSide(evt backtest.TradeEvent) string {
 	if side == "long" || side == "short" {
 		return side
 	}
+
 	action := strings.ToLower(strings.TrimSpace(evt.Action))
 	if strings.Contains(action, "long") {
 		return "long"
@@ -1209,6 +1210,30 @@ func inferTradeSide(evt backtest.TradeEvent) string {
 	if strings.Contains(action, "short") {
 		return "short"
 	}
+
+	// Backward compatibility: some historical rows may use buy/sell in side.
+	// Use action semantics to map to position side.
+	if side == "buy" || side == "sell" {
+		isOpen := strings.Contains(action, "open")
+		isClose := strings.Contains(action, "close") || evt.LiquidationFlag
+		if side == "buy" {
+			if isOpen {
+				return "long"
+			}
+			if isClose {
+				return "short"
+			}
+		}
+		if side == "sell" {
+			if isOpen {
+				return "short"
+			}
+			if isClose {
+				return "long"
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -1359,7 +1384,8 @@ func fillTradeStats(metrics *backtest.Metrics, events []backtest.TradeEvent) {
 	totalWinAmount := 0.0
 	totalLossAmount := 0.0
 	for _, evt := range events {
-		include := evt.LiquidationFlag || strings.HasPrefix(evt.Action, "close")
+		action := strings.ToLower(strings.TrimSpace(evt.Action))
+		include := evt.LiquidationFlag || strings.HasPrefix(action, "close")
 		if evt.RealizedPnL != 0 {
 			include = true
 		}
