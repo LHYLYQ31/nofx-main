@@ -1103,6 +1103,34 @@ type tradeReplayPosition struct {
 	OpenFee float64
 }
 
+func inferTradeIntent(action string, side string, liquidation bool) (isOpen bool, isClose bool) {
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	isOpen = strings.Contains(normalizedAction, "open")
+	isClose = strings.Contains(normalizedAction, "close") || liquidation
+	if isOpen || isClose {
+		return isOpen, isClose
+	}
+
+	// Backward compatibility: some historical trades used buy/sell as action.
+	switch normalizedAction {
+	case "buy":
+		if side == "long" {
+			return true, false
+		}
+		if side == "short" {
+			return false, true
+		}
+	case "sell":
+		if side == "short" {
+			return true, false
+		}
+		if side == "long" {
+			return false, true
+		}
+	}
+	return false, liquidation
+}
+
 func (s *Server) recalculateTradeRealizedPnL(runID string) error {
 	events, err := backtest.LoadTradeEvents(runID)
 	if err != nil {
@@ -1129,8 +1157,7 @@ func (s *Server) recalculateTradeRealizedPnL(runID string) error {
 			positions[key] = pos
 		}
 
-		isOpen := strings.Contains(strings.ToLower(evt.Action), "open")
-		isClose := strings.Contains(strings.ToLower(evt.Action), "close") || evt.LiquidationFlag
+		isOpen, isClose := inferTradeIntent(evt.Action, side, evt.LiquidationFlag)
 		qty := evt.Quantity
 		if qty < 0 {
 			qty = -qty
