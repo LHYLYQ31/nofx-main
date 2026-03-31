@@ -871,6 +871,7 @@ export function BacktestPage() {
   const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false)
   const [selectedQuickHours, setSelectedQuickHours] = useState<number | null>(72)
   const [flashStats, setFlashStats] = useState<Record<string, boolean>>({})
+  const [correctionBaseTrade, setCorrectionBaseTrade] = useState<BacktestTradeEvent | null>(null)
   const [correctionForm, setCorrectionForm] = useState({
     reason: '',
     tradeId: '',
@@ -1321,6 +1322,7 @@ export function BacktestPage() {
       tradeRealizedPnl: String(trade.realized_pnl ?? ''),
       tradeNote: trade.note || '',
     })
+    setCorrectionBaseTrade(trade)
     setIsCorrectionOpen(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -1339,12 +1341,22 @@ export function BacktestPage() {
     const tradePrice = parseOptionalFloat(correctionForm.tradePrice)
     const tradeRealizedPnl = parseOptionalFloat(correctionForm.tradeRealizedPnl)
     const tradeNote = correctionForm.tradeNote.trim()
-    if (tradeAction !== '') tradePatch.action = tradeAction
-    if (tradeSide !== '') tradePatch.side = tradeSide
-    if (tradeQty !== undefined) tradePatch.qty = tradeQty
-    if (tradePrice !== undefined) tradePatch.price = tradePrice
-    if (tradeRealizedPnl !== undefined) tradePatch.realized_pnl = tradeRealizedPnl
-    if (tradeNote !== '') tradePatch.note = tradeNote
+
+    const baseAction = (correctionBaseTrade?.action ?? '').trim()
+    const baseSide = (correctionBaseTrade?.side ?? '').trim()
+    const baseQty = correctionBaseTrade?.qty
+    const basePrice = correctionBaseTrade?.price
+    const baseRealizedPnL = correctionBaseTrade?.realized_pnl
+    const baseNote = (correctionBaseTrade?.note ?? '').trim()
+
+    if (tradeAction !== '' && tradeAction !== baseAction) tradePatch.action = tradeAction
+    if (tradeSide !== '' && tradeSide !== baseSide) tradePatch.side = tradeSide
+    if (tradeQty !== undefined && Math.abs(tradeQty - (baseQty ?? 0)) > 1e-12) tradePatch.qty = tradeQty
+    if (tradePrice !== undefined && Math.abs(tradePrice - (basePrice ?? 0)) > 1e-12) tradePatch.price = tradePrice
+    if (tradeRealizedPnl !== undefined && Math.abs(tradeRealizedPnl - (baseRealizedPnL ?? 0)) > 1e-12) {
+      tradePatch.realized_pnl = tradeRealizedPnl
+    }
+    if (tradeNote !== baseNote) tradePatch.note = tradeNote
 
     if (Object.keys(tradePatch).length <= 1) {
       setToast({ text: tr('toasts.editOneField'), tone: 'error' })
@@ -1384,6 +1396,7 @@ export function BacktestPage() {
       }
       setToast({ text: tr('toasts.correctionSuccess'), tone: 'success' })
       setIsCorrectionOpen(false)
+      setCorrectionBaseTrade(null)
       await Promise.all([
         refreshMyRuns(),
         refreshShowcaseRuns(),
