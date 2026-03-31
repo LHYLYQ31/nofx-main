@@ -538,10 +538,10 @@ export function DebateArenaPage() {
   const voteSum = votes.reduce((a, v) => { a[v.action] = (a[v.action] || 0) + 1; return a }, {} as Record<string, number>)
 
   return (
-    <DeepVoidBackground className="h-full flex overflow-hidden relative" disableAnimation>
+    <DeepVoidBackground className="min-h-[calc(100dvh-64px)] md:h-full flex flex-col md:flex-row overflow-hidden relative" disableAnimation>
 
       {/* Left - Debate List + Online Traders */}
-      <div className="w-56 flex-shrink-0 bg-nofx-bg/80 backdrop-blur-md border-r border-nofx-gold/20 flex flex-col z-10">
+      <div className="w-full md:w-56 flex-shrink-0 bg-nofx-bg/80 backdrop-blur-md border-b md:border-b-0 md:border-r border-nofx-gold/20 flex flex-col z-10 max-h-[40vh] md:max-h-none">
         {/* New Debate Button */}
         <button onClick={() => setShowCreate(true)}
           className="m-2 py-2 rounded-lg bg-nofx-gold text-black font-semibold text-sm flex items-center justify-center gap-1 hover:bg-yellow-500 transition-colors">
@@ -617,7 +617,7 @@ export function DebateArenaPage() {
         {detail ? (
           <>
             {/* Header Bar - Compact */}
-            <div className="px-3 py-2 border-b border-nofx-gold/20 bg-nofx-bg/60 backdrop-blur-md flex items-center gap-3 flex-shrink-0 shadow-sm">
+            <div className="px-3 py-2 border-b border-nofx-gold/20 bg-nofx-bg/60 backdrop-blur-md flex flex-wrap items-center gap-2 md:gap-3 flex-shrink-0 shadow-sm">
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLOR[detail.status]}`} />
               <span className="font-bold text-nofx-text truncate">{detail.name}</span>
               <span className="text-nofx-gold font-semibold">{detail.symbol}</span>
@@ -625,7 +625,7 @@ export function DebateArenaPage() {
               <span className="text-xs text-nofx-text-muted">R{detail.current_round}/{detail.max_rounds}</span>
 
               {/* Participants */}
-              <div className="flex gap-1 ml-2">
+              <div className="flex gap-1 md:ml-2">
                 {participants.map(p => {
                   const vote = votes.find(v => v.ai_model_id === p.ai_model_id)
                   const act = vote ? (ACT[vote.action] || ACT.wait) : null
@@ -642,7 +642,7 @@ export function DebateArenaPage() {
 
               {/* Vote Summary */}
               {votes.length > 0 && (
-                <div className="flex gap-1">
+                <div className="flex gap-1 w-full md:w-auto">
                   {Object.entries(voteSum).map(([action, count]) => {
                     const cfg = ACT[action] || ACT.wait
                     return (
@@ -656,7 +656,7 @@ export function DebateArenaPage() {
             </div>
 
             {/* Main Content Area - Two Column Layout */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
               {Object.keys(rounds).length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
                   <div className="text-6xl mb-4">{detail.status === 'pending' ? '🎯' : '⏳'}</div>
@@ -684,7 +684,7 @@ export function DebateArenaPage() {
 
                   {/* Right - Votes */}
                   {votes.length > 0 && (
-                    <div className="w-[420px] flex-shrink-0 overflow-y-auto p-4 bg-nofx-bg/30 backdrop-blur-sm">
+                    <div className="w-full md:w-[420px] flex-shrink-0 overflow-y-auto p-4 bg-nofx-bg/30 backdrop-blur-sm border-t md:border-t-0 md:border-l border-nofx-gold/20 max-h-[45vh] md:max-h-none">
                       <div className="text-sm text-nofx-text-muted font-semibold mb-3 flex items-center gap-2">
                         <Trophy size={16} className="text-nofx-gold" />
                         {t('finalVotes', language)}
@@ -712,7 +712,7 @@ export function DebateArenaPage() {
 
             {/* Consensus Bar - Show when votes exist */}
             {(decision || votes.length > 0) && (
-              <div className="p-3 border-t border-nofx-gold/20 bg-gradient-to-r from-nofx-gold/10 via-nofx-bg-lighter/50 to-orange-500/10 backdrop-blur-md flex items-center gap-4 flex-shrink-0">
+              <div className="p-3 border-t border-nofx-gold/20 bg-gradient-to-r from-nofx-gold/10 via-nofx-bg-lighter/50 to-orange-500/10 backdrop-blur-md flex flex-wrap items-center gap-3 md:gap-4 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <Trophy size={20} className="text-nofx-gold" />
                   <span className="text-sm text-nofx-text-muted">{t('consensus', language)}:</span>
@@ -731,7 +731,7 @@ export function DebateArenaPage() {
                   )}
                 </div>
                 {decision && (
-                  <div className="flex items-center gap-4 text-sm">
+                  <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs md:text-sm">
                     <span><span className="text-nofx-text-muted">{t('confidence', language)}</span> <span className="text-nofx-gold font-bold">{decision.confidence || 0}%</span></span>
                     {(decision.leverage ?? 0) > 0 && <span><span className="text-nofx-text-muted">{t('leverage', language)}</span> <span className="text-nofx-text font-bold">{decision.leverage}x</span></span>}
                     {(decision.position_pct ?? 0) > 0 && <span><span className="text-nofx-text-muted">{t('position', language)}</span> <span className="text-nofx-text font-bold">{((decision.position_pct ?? 0) * 100).toFixed(0)}%</span></span>}
