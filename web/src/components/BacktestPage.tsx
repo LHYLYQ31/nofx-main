@@ -52,6 +52,7 @@ import type {
   BacktestTradeEvent,
   BacktestTradeCorrectionPatch,
   BacktestMetrics,
+  BacktestKline,
   BacktestKlinesResponse,
   DecisionRecord,
   AIModel,
@@ -85,19 +86,58 @@ const parseOptionalInt = (value: string): number | undefined => {
   return Number.isInteger(parsed) ? parsed : undefined
 }
 
-const inferCloseTradeEntryPrice = (trade: BacktestTradeEvent): number | undefined => {
+const timeframeToSeconds = (tf: string): number => {
+  const normalized = tf.trim().toLowerCase()
+  const match = normalized.match(/^(\d+)([mhd])$/)
+  if (!match) return 15 * 60
+  const value = Number(match[1])
+  const unit = match[2]
+  if (!Number.isFinite(value) || value <= 0) return 15 * 60
+  if (unit === 'm') return value * 60
+  if (unit === 'h') return value * 3600
+  return value * 86400
+}
+
+const deriveTradeSemantics = (trade: Pick<BacktestTradeEvent, 'action' | 'side' | 'liquidation'>) => {
   const action = (trade.action || '').toLowerCase()
-  if (!action.includes('close')) return undefined
-  const qty = Math.abs(Number(trade.qty ?? 0))
-  if (!Number.isFinite(qty) || qty <= 0) return undefined
-  const closePrice = Number(trade.price ?? 0)
-  const realized = Number(trade.realized_pnl ?? 0)
-  if (!Number.isFinite(closePrice) || !Number.isFinite(realized)) return undefined
   const side = (trade.side || '').toLowerCase()
-  const isLong = side === 'long' || action.includes('long')
-  const inferred = isLong ? closePrice - realized/qty : closePrice + realized/qty
-  if (!Number.isFinite(inferred) || inferred <= 0) return undefined
-  return inferred
+  let positionSide: 'long' | 'short' | '' = ''
+  if (side === 'long' || action.includes('long')) positionSide = 'long'
+  if (side === 'short' || action.includes('short')) positionSide = 'short'
+
+  let isOpen = action.includes('open')
+  let isClose = action.includes('close') || trade.liquidation === true
+  if (!isOpen && !isClose) {
+    if (action === 'buy') {
+      if (positionSide === 'long') isOpen = true
+      if (positionSide === 'short') isClose = true
+    }
+    if (action === 'sell') {
+      if (positionSide === 'short') isOpen = true
+      if (positionSide === 'long') isClose = true
+    }
+  }
+  return { action, positionSide, isOpen, isClose }
+}
+
+const pickKlineForTimestamp = (klines: BacktestKline[], tsMs: number, timeframe: string): BacktestKline | undefined => {
+  if (!Number.isFinite(tsMs) || klines.length === 0) return undefined
+  const tsSec = Math.floor(tsMs / 1000)
+  const tfSeconds = timeframeToSeconds(timeframe)
+  const direct = klines.find((k) => tsSec >= k.time && tsSec < (k.time + tfSeconds))
+  if (direct) return direct
+  return klines.reduce((prev, curr) =>
+    Math.abs(curr.time - tsSec) < Math.abs(prev.time - tsSec) ? curr : prev
+  )
+}
+
+const buildNearbyKlineOptions = (klines: BacktestKline[], baseTsMs: number, limit = 240): BacktestKline[] => {
+  if (klines.length === 0 || !Number.isFinite(baseTsMs)) return []
+  const tsSec = Math.floor(baseTsMs / 1000)
+  return [...klines]
+    .sort((a, b) => Math.abs(a.time - tsSec) - Math.abs(b.time - tsSec))
+    .slice(0, limit)
+    .sort((a, b) => a.time - b.time)
 }
 
 type ParseSymbolsResult =
@@ -887,14 +927,22 @@ export function BacktestPage() {
   const [selectedQuickHours, setSelectedQuickHours] = useState<number | null>(72)
   const [flashStats, setFlashStats] = useState<Record<string, boolean>>({})
   const [correctionBaseTrade, setCorrectionBaseTrade] = useState<BacktestTradeEvent | null>(null)
+  const [correctionKlines, setCorrectionKlines] = useState<BacktestKline[]>([])
+  const [isLoadingCorrectionKlines, setIsLoadingCorrectionKlines] = useState(false)
+  const [correctionKlineError, setCorrectionKlineError] = useState<string | null>(null)
   const [correctionForm, setCorrectionForm] = useState({
     reason: '',
     tradeId: '',
+    tradeTs: '',
+    tradeKlineTs: '',
+    entryTradeId: '',
+    entryTradeTs: '',
+    entryTradeKlineTs: '',
     tradeAction: '',
     tradeSide: '',
     tradeQty: '',
     tradePrice: '',
-    tradeEntryPrice: '',
+    entryTradePrice: '',
     tradeRealizedPnl: '',
     tradeNote: '',
   })
@@ -978,6 +1026,46 @@ export function BacktestPage() {
   const canEditBacktest = correctionPermission?.can_edit === true
 
   const selectedRun = runs.find((r) => r.run_id === selectedRunId)
+  const allTrades = trades ?? []
+  const correctionKlineOptions = useMemo(() => {
+    if (!correctionBaseTrade || correctionKlines.length === 0) return [] as BacktestKline[]
+    const baseTs = parseOptionalInt(correctionForm.tradeTs) ?? correctionBaseTrade.ts
+    return buildNearbyKlineOptions(correctionKlines, baseTs, 240)
+  }, [correctionBaseTrade, correctionKlines, correctionForm.tradeTs])
+  const selectedCorrectionKline = useMemo(() => {
+    const selectedKlineTs = parseOptionalInt(correctionForm.tradeKlineTs)
+    if (!selectedKlineTs) return undefined
+    return correctionKlines.find((k) => k.time === selectedKlineTs)
+  }, [correctionKlines, correctionForm.tradeKlineTs])
+  const correctionEntryCandidates = useMemo(() => {
+    if (!correctionBaseTrade) return [] as BacktestTradeEvent[]
+    const baseSemantics = deriveTradeSemantics(correctionBaseTrade)
+    if (!baseSemantics.isClose || !baseSemantics.positionSide) return [] as BacktestTradeEvent[]
+    return allTrades
+      .filter((item) => {
+        if (item.id === undefined || item.id === correctionBaseTrade.id) return false
+        if (item.symbol !== correctionBaseTrade.symbol) return false
+        const semantics = deriveTradeSemantics(item)
+        if (!semantics.isOpen || semantics.positionSide !== baseSemantics.positionSide) return false
+        return item.ts <= correctionBaseTrade.ts
+      })
+      .sort((a, b) => a.ts - b.ts)
+  }, [correctionBaseTrade, allTrades])
+  const selectedEntryTradeBase = useMemo(() => {
+    const selectedId = parseOptionalInt(correctionForm.entryTradeId)
+    if (selectedId === undefined) return undefined
+    return correctionEntryCandidates.find((item) => item.id === selectedId)
+  }, [correctionEntryCandidates, correctionForm.entryTradeId])
+  const entryKlineOptions = useMemo(() => {
+    if (!selectedEntryTradeBase || correctionKlines.length === 0) return [] as BacktestKline[]
+    const baseTs = parseOptionalInt(correctionForm.entryTradeTs) ?? selectedEntryTradeBase.ts
+    return buildNearbyKlineOptions(correctionKlines, baseTs, 240)
+  }, [selectedEntryTradeBase, correctionKlines, correctionForm.entryTradeTs])
+  const selectedEntryKline = useMemo(() => {
+    const selectedKlineTs = parseOptionalInt(correctionForm.entryTradeKlineTs)
+    if (!selectedKlineTs) return undefined
+    return correctionKlines.find((k) => k.time === selectedKlineTs)
+  }, [correctionKlines, correctionForm.entryTradeKlineTs])
   const selectedModel = aiModels?.find((m) => m.id === formState.aiModelId)
   const selectedStrategy = strategies?.find((s) => s.id === formState.strategyId)
   const isDecisionTfValid = formState.timeframes.includes(formState.decisionTf)
@@ -992,7 +1080,7 @@ export function BacktestPage() {
   const selectedSymbolSet = useMemo(() => new Set(selectedSymbolList), [selectedSymbolList])
   const decisionTfHint =
     language === 'zh'
-      ? '决策周期必须包含在时间周期中，请先选择包含该周期的 timeframes。'
+      ? '决策周期必须包含在已选择的 timeframes 中。'
       : 'Decision timeframe must be included in selected timeframes.'
 
   // Check if selected strategy has dynamic coin source
@@ -1331,14 +1419,16 @@ export function BacktestPage() {
     setCorrectionForm({
       reason: '',
       tradeId: String(trade.id),
+      tradeTs: String(trade.ts ?? ''),
+      tradeKlineTs: '',
+      entryTradeId: '',
+      entryTradeTs: '',
+      entryTradeKlineTs: '',
       tradeAction: trade.action || '',
       tradeSide: trade.side || '',
       tradeQty: String(trade.qty ?? ''),
       tradePrice: String(trade.price ?? ''),
-      tradeEntryPrice: (() => {
-        const inferred = inferCloseTradeEntryPrice(trade)
-        return inferred !== undefined ? String(inferred) : ''
-      })(),
+      entryTradePrice: '',
       tradeRealizedPnl: String(trade.realized_pnl ?? ''),
       tradeNote: trade.note || '',
     })
@@ -1346,6 +1436,72 @@ export function BacktestPage() {
     setIsCorrectionOpen(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  useEffect(() => {
+    if (!isCorrectionOpen || !selectedRunId || !correctionBaseTrade?.symbol) return
+    let active = true
+    const tf = selectedRun?.summary?.decision_tf || '15m'
+
+    setIsLoadingCorrectionKlines(true)
+    setCorrectionKlineError(null)
+
+    api.getBacktestKlines(selectedRunId, correctionBaseTrade.symbol, tf)
+      .then((resp) => {
+        if (!active) return
+        const list = [...resp.klines].sort((a, b) => a.time - b.time)
+        setCorrectionKlines(list)
+        if (list.length === 0) return
+        const matched = pickKlineForTimestamp(list, correctionBaseTrade.ts, tf)
+        if (!matched) return
+        setCorrectionForm((prev) => ({
+          ...prev,
+          tradeKlineTs: String(matched.time),
+        }))
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        const message = err instanceof Error ? err.message : 'Failed to load kline options'
+        setCorrectionKlineError(message)
+      })
+      .finally(() => {
+        if (active) setIsLoadingCorrectionKlines(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isCorrectionOpen, selectedRunId, correctionBaseTrade?.symbol, correctionBaseTrade?.ts, selectedRun?.summary?.decision_tf])
+
+  useEffect(() => {
+    if (!isCorrectionOpen || !correctionBaseTrade) return
+    const baseSemantics = deriveTradeSemantics(correctionBaseTrade)
+    if (!baseSemantics.isClose) return
+    if (correctionEntryCandidates.length === 0) return
+
+    const currentEntryId = parseOptionalInt(correctionForm.entryTradeId)
+    const existing = currentEntryId !== undefined
+      ? correctionEntryCandidates.find((item) => item.id === currentEntryId)
+      : undefined
+    const target = existing ?? correctionEntryCandidates[correctionEntryCandidates.length - 1]
+    if (!target || target.id === undefined) return
+
+    const tf = selectedRun?.summary?.decision_tf || '15m'
+    const matchedKline = pickKlineForTimestamp(correctionKlines, target.ts, tf)
+    setCorrectionForm((prev) => ({
+      ...prev,
+      entryTradeId: String(target.id),
+      entryTradeTs: String(target.ts),
+      entryTradePrice: String(target.price ?? ''),
+      entryTradeKlineTs: matchedKline ? String(matchedKline.time) : prev.entryTradeKlineTs,
+    }))
+  }, [
+    isCorrectionOpen,
+    correctionBaseTrade,
+    correctionEntryCandidates,
+    correctionKlines,
+    correctionForm.entryTradeId,
+    selectedRun?.summary?.decision_tf,
+  ])
 
   const submitCorrection = async () => {
     if (!selectedRunId) return
@@ -1355,47 +1511,144 @@ export function BacktestPage() {
       return
     }
     const tradePatch: BacktestTradeCorrectionPatch = { trade_id: tradeId }
+    const tradeUpdates: BacktestTradeCorrectionPatch[] = []
+    const tradeTs = parseOptionalInt(correctionForm.tradeTs)
     const tradeAction = correctionForm.tradeAction.trim()
     const tradeSide = correctionForm.tradeSide.trim()
     const tradeQty = parseOptionalFloat(correctionForm.tradeQty)
     const tradePrice = parseOptionalFloat(correctionForm.tradePrice)
-    const tradeEntryPrice = parseOptionalFloat(correctionForm.tradeEntryPrice)
     const tradeRealizedPnl = parseOptionalFloat(correctionForm.tradeRealizedPnl)
     const tradeNote = correctionForm.tradeNote.trim()
 
-    const normalizedAction = tradeAction.toLowerCase()
-    const isCloseTrade = normalizedAction.includes('close')
     const baseAction = (correctionBaseTrade?.action ?? '').trim()
+    const baseTs = correctionBaseTrade?.ts
     const baseSide = (correctionBaseTrade?.side ?? '').trim()
     const baseQty = correctionBaseTrade?.qty
     const basePrice = correctionBaseTrade?.price
-    const baseEntryPrice = correctionBaseTrade ? inferCloseTradeEntryPrice(correctionBaseTrade) : undefined
     const baseRealizedPnL = correctionBaseTrade?.realized_pnl
     const baseNote = (correctionBaseTrade?.note ?? '').trim()
 
+    if (tradeTs !== undefined && tradeTs !== baseTs) tradePatch.ts = tradeTs
     if (tradeAction !== '' && tradeAction !== baseAction) tradePatch.action = tradeAction
     if (tradeSide !== '' && tradeSide !== baseSide) tradePatch.side = tradeSide
     if (tradeQty !== undefined && Math.abs(tradeQty - (baseQty ?? 0)) > 1e-12) tradePatch.qty = tradeQty
     if (tradePrice !== undefined && Math.abs(tradePrice - (basePrice ?? 0)) > 1e-12) tradePatch.price = tradePrice
-    if (isCloseTrade && tradeEntryPrice !== undefined && Math.abs(tradeEntryPrice - (baseEntryPrice ?? 0)) > 1e-12) {
-      tradePatch.entry_price = tradeEntryPrice
-    }
     if (tradeRealizedPnl !== undefined && Math.abs(tradeRealizedPnl - (baseRealizedPnL ?? 0)) > 1e-12) {
       tradePatch.realized_pnl = tradeRealizedPnl
     }
     if (tradeNote !== baseNote) tradePatch.note = tradeNote
 
-    if (Object.keys(tradePatch).length <= 1) {
+    if (tradePatch.price !== undefined && tradePatch.price <= 0) {
+      setToast({ text: language === 'zh' ? '成交价格必须大于 0' : 'Trade price must be greater than 0', tone: 'error' })
+      return
+    }
+    if (tradePatch.qty !== undefined && tradePatch.qty <= 0) {
+      setToast({ text: language === 'zh' ? '数量必须大于 0' : 'Quantity must be greater than 0', tone: 'error' })
+      return
+    }
+    if (Object.keys(tradePatch).length > 1) {
+      tradeUpdates.push(tradePatch)
+    }
+
+    const closeSemantics = deriveTradeSemantics({
+      action: (tradePatch.action ?? correctionBaseTrade?.action ?? '').trim(),
+      side: (tradePatch.side ?? correctionBaseTrade?.side ?? '').trim(),
+      liquidation: correctionBaseTrade?.liquidation ?? false,
+    })
+    let entryPatch: BacktestTradeCorrectionPatch | null = null
+    let effectiveEntryTs: number | undefined
+    if (closeSemantics.isClose) {
+      const entryTradeId = parseOptionalInt(correctionForm.entryTradeId)
+      if (entryTradeId === undefined) {
+        setToast({
+          text: language === 'zh' ? '请先选择对应的开仓交易（买入单）' : 'Select linked entry trade first',
+          tone: 'error',
+        })
+        return
+      }
+      const entryBase = correctionEntryCandidates.find((item) => item.id === entryTradeId)
+      if (!entryBase) {
+        setToast({ text: language === 'zh' ? '未找到对应开仓交易，请重新选择' : 'Linked entry trade not found', tone: 'error' })
+        return
+      }
+      const entrySemantics = deriveTradeSemantics(entryBase)
+      if (!entrySemantics.isOpen) {
+        setToast({ text: language === 'zh' ? '关联交易不是开仓单，不能作为买入单' : 'Linked trade is not an open trade', tone: 'error' })
+        return
+      }
+      entryPatch = { trade_id: entryTradeId }
+      const entryTradeTs = parseOptionalInt(correctionForm.entryTradeTs)
+      const entryTradePrice = parseOptionalFloat(correctionForm.entryTradePrice)
+      if (entryTradeTs !== undefined && entryTradeTs !== entryBase.ts) entryPatch.ts = entryTradeTs
+      if (entryTradePrice !== undefined && Math.abs(entryTradePrice - entryBase.price) > 1e-12) entryPatch.price = entryTradePrice
+      if (entryPatch.price !== undefined && entryPatch.price <= 0) {
+        setToast({ text: language === 'zh' ? '开仓价格必须大于 0' : 'Entry price must be greater than 0', tone: 'error' })
+        return
+      }
+      effectiveEntryTs = entryPatch.ts ?? entryBase.ts
+      const effectiveCloseTs = tradePatch.ts ?? correctionBaseTrade?.ts
+      if (effectiveCloseTs !== undefined && effectiveEntryTs !== undefined && effectiveCloseTs < effectiveEntryTs) {
+        setToast({ text: language === 'zh' ? '平仓K线时间不能早于开仓K线时间' : 'Close kline time cannot be earlier than entry kline time', tone: 'error' })
+        return
+      }
+      if (Object.keys(entryPatch).length > 1) {
+        tradeUpdates.push(entryPatch)
+      }
+    }
+
+    if (tradeUpdates.length === 0) {
       setToast({ text: tr('toasts.editOneField'), tone: 'error' })
       return
     }
 
     try {
       setIsSubmittingCorrection(true)
+
+      // Validate edited execution price against corresponding Kline range.
+      const tf = selectedRun?.summary?.decision_tf || '15m'
+      if (tradePatch.price !== undefined) {
+        const effectiveTs = tradePatch.ts ?? correctionBaseTrade?.ts
+        const matched = effectiveTs ? pickKlineForTimestamp(correctionKlines, effectiveTs, tf) : undefined
+        if (!matched) {
+          setToast({ text: language === 'zh' ? '无法找到平仓交易对应K线，无法校验价格' : 'Cannot find kline for close trade validation', tone: 'error' })
+          return
+        }
+        const low = Math.min(matched.low, matched.high)
+        const high = Math.max(matched.low, matched.high)
+        if (tradePatch.price < low || tradePatch.price > high) {
+          setToast({
+            text: language === 'zh'
+              ? `平仓价格 ${tradePatch.price.toFixed(4)} 不在K线范围（${low.toFixed(4)} ~ ${high.toFixed(4)}）`
+              : `Close price ${tradePatch.price.toFixed(4)} is outside kline range (${low.toFixed(4)} ~ ${high.toFixed(4)})`,
+            tone: 'error',
+          })
+          return
+        }
+      }
+
+      if (entryPatch?.price !== undefined && effectiveEntryTs !== undefined) {
+        const matched = pickKlineForTimestamp(correctionKlines, effectiveEntryTs, tf)
+        if (!matched) {
+          setToast({ text: language === 'zh' ? '无法找到开仓交易对应K线，无法校验价格' : 'Cannot find kline for entry trade validation', tone: 'error' })
+          return
+        }
+        const low = Math.min(matched.low, matched.high)
+        const high = Math.max(matched.low, matched.high)
+        if (entryPatch.price < low || entryPatch.price > high) {
+          setToast({
+            text: language === 'zh'
+              ? `开仓价格 ${entryPatch.price.toFixed(4)} 不在K线范围（${low.toFixed(4)} ~ ${high.toFixed(4)}）`
+              : `Entry price ${entryPatch.price.toFixed(4)} is outside kline range (${low.toFixed(4)} ~ ${high.toFixed(4)})`,
+            tone: 'error',
+          })
+          return
+        }
+      }
+
       const result = await api.correctBacktestResult({
         run_id: selectedRunId,
         reason: correctionForm.reason.trim() || undefined,
-        trade_updates: [tradePatch],
+        trade_updates: tradeUpdates,
       })
       const changed: string[] = []
       const currentEquity = status?.equity ?? 0
@@ -1445,6 +1698,13 @@ export function BacktestPage() {
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (isCorrectionOpen) return
+    setCorrectionKlines([])
+    setIsLoadingCorrectionKlines(false)
+    setCorrectionKlineError(null)
+  }, [isCorrectionOpen])
 
   useEffect(() => {
     if (runScope === 'showcase') {
@@ -2296,7 +2556,10 @@ export function BacktestPage() {
                     <div
                       className="absolute inset-0"
                       style={{ background: 'rgba(11,14,17,0.7)' }}
-                      onClick={() => setIsCorrectionOpen(false)}
+                      onClick={() => {
+                        setIsCorrectionOpen(false)
+                        setCorrectionBaseTrade(null)
+                      }}
                     />
                     <div
                       className="relative w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-xl p-4 space-y-3"
@@ -2307,7 +2570,10 @@ export function BacktestPage() {
                           {tr('ui.editTradeData')}
                         </h3>
                         <button
-                          onClick={() => setIsCorrectionOpen(false)}
+                          onClick={() => {
+                            setIsCorrectionOpen(false)
+                            setCorrectionBaseTrade(null)
+                          }}
                           className="text-xs px-2 py-1 rounded"
                           style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#848E9C' }}
                         >
@@ -2368,19 +2634,150 @@ export function BacktestPage() {
                             style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
                           />
                         </div>
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="text-xs" style={{ color: '#848E9C' }}>
+                            {language === 'zh' ? '交易发生K线' : 'Execution Kline'} (
+                            <code>trade_updates[].ts</code>)
+                          </label>
+                          <select
+                            value={correctionForm.tradeKlineTs}
+                            onChange={(e) => {
+                              const selectedKlineTs = e.target.value
+                              setCorrectionForm((p) => ({
+                                ...p,
+                                tradeKlineTs: selectedKlineTs,
+                                tradeTs: selectedKlineTs
+                                  ? String(Number(selectedKlineTs) * 1000)
+                                  : String(correctionBaseTrade?.ts ?? p.tradeTs),
+                              }))
+                            }}
+                            className="w-full p-2 rounded-lg text-sm"
+                            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                          >
+                            <option value="">
+                              {language === 'zh' ? '保持原交易时间' : 'Keep original trade timestamp'}
+                            </option>
+                            {correctionKlineOptions.map((k) => {
+                              const kTime = new Date(k.time * 1000).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                              return (
+                                <option key={k.time} value={String(k.time)}>
+                                  {kTime} | L {k.low.toFixed(2)} H {k.high.toFixed(2)}
+                                </option>
+                              )
+                            })}
+                          </select>
+                          {isLoadingCorrectionKlines && (
+                            <div className="text-[11px]" style={{ color: '#848E9C' }}>
+                              {language === 'zh' ? '正在加载K线选项...' : 'Loading kline options...'}
+                            </div>
+                          )}
+                          {correctionKlineError && (
+                            <div className="text-[11px]" style={{ color: '#F6465D' }}>
+                              {correctionKlineError}
+                            </div>
+                          )}
+                          {selectedCorrectionKline && (
+                            <div className="text-[11px]" style={{ color: '#848E9C' }}>
+                              {language === 'zh'
+                                ? `该K线范围：最低 ${selectedCorrectionKline.low.toFixed(4)} / 最高 ${selectedCorrectionKline.high.toFixed(4)}`
+                                : `Kline range: low ${selectedCorrectionKline.low.toFixed(4)} / high ${selectedCorrectionKline.high.toFixed(4)}`}
+                            </div>
+                          )}
+                        </div>
                         {(correctionForm.tradeAction || '').toLowerCase().includes('close') && (
-                          <div className="space-y-1">
-                            <label className="text-xs" style={{ color: '#848E9C' }}>
-                              {language === 'zh' ? '买入/开仓价' : 'Entry Price'} (
-                              <code>trade_updates[].entry_price</code>)
-                            </label>
-                            <input
-                              value={correctionForm.tradeEntryPrice}
-                              onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeEntryPrice: e.target.value }))}
-                              className="w-full p-2 rounded-lg text-sm"
-                              style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-                            />
-                          </div>
+                          <>
+                            <div className="space-y-1 md:col-span-2">
+                              <label className="text-xs" style={{ color: '#848E9C' }}>
+                                {language === 'zh' ? '关联开仓交易（买入单）' : 'Linked Entry Trade'} (
+                                <code>trade_updates[]</code>)
+                              </label>
+                              <select
+                                value={correctionForm.entryTradeId}
+                                onChange={(e) => {
+                                  const idVal = e.target.value
+                                  const target = correctionEntryCandidates.find((item) => String(item.id) === idVal)
+                                  const tf = selectedRun?.summary?.decision_tf || '15m'
+                                  const matched = target ? pickKlineForTimestamp(correctionKlines, target.ts, tf) : undefined
+                                  setCorrectionForm((p) => ({
+                                    ...p,
+                                    entryTradeId: idVal,
+                                    entryTradeTs: target ? String(target.ts) : '',
+                                    entryTradePrice: target ? String(target.price) : '',
+                                    entryTradeKlineTs: matched ? String(matched.time) : '',
+                                  }))
+                                }}
+                                className="w-full p-2 rounded-lg text-sm"
+                                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                              >
+                                <option value="">{language === 'zh' ? '请选择开仓交易' : 'Select entry trade'}</option>
+                                {correctionEntryCandidates.map((item) => (
+                                  <option key={item.id} value={String(item.id)}>
+                                    #{item.id} | {new Date(item.ts).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')} | {item.action} | {item.price.toFixed(4)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs" style={{ color: '#848E9C' }}>
+                                {language === 'zh' ? '开仓发生K线' : 'Entry Kline'} (
+                                <code>trade_updates[].ts</code>)
+                              </label>
+                              <select
+                                value={correctionForm.entryTradeKlineTs}
+                                onChange={(e) => {
+                                  const selectedKlineTs = e.target.value
+                                  setCorrectionForm((p) => ({
+                                    ...p,
+                                    entryTradeKlineTs: selectedKlineTs,
+                                    entryTradeTs: selectedKlineTs
+                                      ? String(Number(selectedKlineTs) * 1000)
+                                      : p.entryTradeTs,
+                                  }))
+                                }}
+                                className="w-full p-2 rounded-lg text-sm"
+                                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                              >
+                                <option value="">{language === 'zh' ? '保持原开仓时间' : 'Keep original entry timestamp'}</option>
+                                {entryKlineOptions.map((k) => {
+                                  const kTime = new Date(k.time * 1000).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                  return (
+                                    <option key={`entry-${k.time}`} value={String(k.time)}>
+                                      {kTime} | L {k.low.toFixed(2)} H {k.high.toFixed(2)}
+                                    </option>
+                                  )
+                                })}
+                              </select>
+                              {selectedEntryKline && (
+                                <div className="text-[11px]" style={{ color: '#848E9C' }}>
+                                  {language === 'zh'
+                                    ? `开仓K线范围：最低 ${selectedEntryKline.low.toFixed(4)} / 最高 ${selectedEntryKline.high.toFixed(4)}`
+                                    : `Entry kline range: low ${selectedEntryKline.low.toFixed(4)} / high ${selectedEntryKline.high.toFixed(4)}`}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs" style={{ color: '#848E9C' }}>
+                                {language === 'zh' ? '开仓价格' : 'Entry Price'} (
+                                <code>trade_updates[].price</code>)
+                              </label>
+                              <input
+                                value={correctionForm.entryTradePrice}
+                                onChange={(e) => setCorrectionForm((p) => ({ ...p, entryTradePrice: e.target.value }))}
+                                className="w-full p-2 rounded-lg text-sm"
+                                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                              />
+                            </div>
+                          </>
                         )}
                         <div className="space-y-1">
                           <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeRealizedPnl')} (
@@ -2640,3 +3037,5 @@ export function BacktestPage() {
     </DeepVoidBackground>
   )
 }
+
+
