@@ -849,7 +849,7 @@ export function StrategyStudioPage() {
                     <span className="text-xs text-nofx-gold">● {language === 'zh' ? '未保存' : 'Unsaved'}</span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                   {!selectedStrategy.is_active && (
                     <button
                       onClick={() => handleActivateStrategy(selectedStrategy.id)}
@@ -880,7 +880,7 @@ export function StrategyStudioPage() {
                     <Zap className="w-4 h-4" style={{ color: '#F0B90B' }} />
                     <span className="text-sm font-medium text-nofx-text">{t('strategyType')}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
                       onClick={() => {
                         if (!selectedStrategy?.is_default) {
@@ -1027,7 +1027,7 @@ export function StrategyStudioPage() {
                         <Code className="w-3 h-3 text-purple-500" />
                         <span className="text-xs font-medium text-purple-500">Config</span>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                         {Object.entries(promptPreview.config_summary || {}).map(([key, value]) => (
                           <div key={key}>
                             <div className="text-nofx-text-muted">{key.replace(/_/g, ' ')}</div>

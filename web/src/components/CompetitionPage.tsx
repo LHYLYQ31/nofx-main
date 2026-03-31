@@ -46,7 +46,7 @@ export function CompetitionPage() {
   if (!competition) {
     return (
       <DeepVoidBackground className="py-8" disableAnimation>
-        <div className="container mx-auto max-w-7xl px-4 md:px-8">
+        <div className="container mx-auto max-w-7xl px-3 sm:px-4 md:px-8">
           <div className="space-y-6">
             <div className="animate-pulse bg-black/40 border border-white/10 rounded-xl p-8 backdrop-blur-md">
               <div className="flex items-center justify-between mb-6">
@@ -74,7 +74,7 @@ export function CompetitionPage() {
   if (!competition.traders || competition.traders.length === 0) {
     return (
       <DeepVoidBackground className="py-8" disableAnimation>
-        <div className="container mx-auto max-w-7xl px-4 md:px-8 space-y-8 animate-fade-in">
+        <div className="container mx-auto max-w-7xl px-3 sm:px-4 md:px-8 space-y-8 animate-fade-in">
           {/* Competition Header - 精简版 */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-0">
             <div className="flex items-center gap-3 md:gap-4">
@@ -130,7 +130,7 @@ export function CompetitionPage() {
 
   return (
     <DeepVoidBackground className="py-8" disableAnimation>
-      <div className="w-full px-4 md:px-8 space-y-8 animate-fade-in">
+      <div className="w-full px-3 sm:px-4 md:px-8 space-y-8 animate-fade-in">
         {/* Competition Header - 精简版 */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-0">
           <div className="flex items-center gap-3 md:gap-4">
@@ -162,7 +162,7 @@ export function CompetitionPage() {
               {t('leader', language)}
             </div>
             <div
-              className="text-base md:text-lg font-bold text-nofx-gold"
+              className="text-base md:text-lg font-bold text-nofx-gold truncate max-w-[220px] md:max-w-none"
             >
               {leader?.trader_name}
             </div>
@@ -182,7 +182,7 @@ export function CompetitionPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Performance Comparison Chart */}
           <div
-            className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
+            className="bg-black/40 border border-white/10 rounded-xl p-4 sm:p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
             style={{ animationDelay: '0.1s' }}
           >
             <div className="flex items-center justify-between mb-6">
@@ -200,7 +200,7 @@ export function CompetitionPage() {
 
           {/* Right: Leaderboard */}
           <div
-            className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
+            className="bg-black/40 border border-white/10 rounded-xl p-4 sm:p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
             style={{ animationDelay: '0.1s' }}
           >
             <div className="flex items-center justify-between mb-6">
@@ -296,7 +296,7 @@ export function CompetitionPage() {
                         </div>
 
                         {/* P&L */}
-                        <div className="text-right min-w-[70px] md:min-w-[90px]">
+                        <div className="text-right min-w-[58px] sm:min-w-[70px] md:min-w-[90px]">
                           <div className="text-xs" style={{ color: '#848E9C' }}>
                             {t('pnl', language)}
                           </div>
@@ -376,7 +376,7 @@ export function CompetitionPage() {
             >
               {t('headToHead', language)}
             </h2>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {sortedTraders.map((trader, index) => {
                 const isWinning = index === 0
                 const opponent = sortedTraders[1 - index]

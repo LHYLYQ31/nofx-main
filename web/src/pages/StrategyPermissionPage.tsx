@@ -357,12 +357,12 @@ export function StrategyPermissionPage() {
   }
 
   if (loading) {
-    return <div className="max-w-[1400px] mx-auto p-6 text-nofx-text-muted">{i18n.loading}</div>
+    return <div className="max-w-[1400px] mx-auto p-3 sm:p-6 text-nofx-text-muted">{i18n.loading}</div>
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="max-w-[1400px] mx-auto p-3 sm:p-6 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-nofx-text flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-nofx-gold" />
@@ -372,7 +372,7 @@ export function StrategyPermissionPage() {
         </div>
         <button
           onClick={onRefresh}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-nofx-bg-lighter border border-nofx-gold/20 text-nofx-text hover:bg-white/5"
+          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-nofx-bg-lighter border border-nofx-gold/20 text-nofx-text hover:bg-white/5 w-full sm:w-auto"
         >
           <RefreshCw className="w-4 h-4" />
           {i18n.refresh}
@@ -431,7 +431,7 @@ export function StrategyPermissionPage() {
         </div>
 
         <div className="rounded-lg border border-nofx-gold/20 bg-nofx-bg-lighter p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
             <div>
               <div className="text-sm text-nofx-text-muted">{i18n.selectedUser}</div>
               <div className="text-base font-semibold text-nofx-text">{selectedUser?.email || '-'}</div>
@@ -439,7 +439,7 @@ export function StrategyPermissionPage() {
                 {i18n.currentRole}: {selectedUser?.role || '-'}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {canManageRoles && (
                 <>
                   <button
@@ -522,7 +522,7 @@ export function StrategyPermissionPage() {
       </div>
 
       <div className="rounded-lg border border-nofx-gold/20 bg-nofx-bg-lighter p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
           <div>
             <h2 className="text-base font-semibold text-nofx-text">
               {language === 'zh' ? '官方策略照片墙配置' : 'Official Strategy Wall Config'}
@@ -533,7 +533,7 @@ export function StrategyPermissionPage() {
                 : 'Choose strategies to display in the backtest showcase wall.'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowcaseStrategyIDs(new Set(strategies.map((s) => s.id)))}
               disabled={strategies.length === 0}
