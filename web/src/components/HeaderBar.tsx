@@ -355,14 +355,14 @@ export default function HeaderBar({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 md:hidden bg-black/90 backdrop-blur-xl"
+            className="fixed inset-0 z-40 md:hidden bg-[#05070A]"
             style={{ top: '64px' }} // Below header
           >
             <motion.div
               initial={{ y: -20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.1, duration: 0.3 }}
-              className="flex flex-col h-[calc(100dvh-64px)] overflow-y-auto px-6 py-8"
+              className="flex flex-col h-[calc(100dvh-64px)] overflow-y-auto px-6 py-8 bg-[#05070A]"
               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 2rem)' }}
             >
               {/* Navigation Links */}
