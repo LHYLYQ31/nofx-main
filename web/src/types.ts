@@ -326,7 +326,27 @@ export interface BacktestShowcaseUserItem {
 export interface ShowcaseStrategyItem {
   strategy_id: string;
   strategy_name?: string;
+  showcase_run_id?: string;
   sort_order?: number;
+}
+
+export interface ShowcaseWallEquityPoint {
+  ts: number;
+  equity: number;
+}
+
+export interface ShowcaseWallCardItem {
+  strategy_id: string;
+  strategy_name?: string;
+  showcase_run_id?: string;
+  run_id?: string;
+  state?: string;
+  symbol?: string;
+  equity_last?: number;
+  max_drawdown_pct?: number;
+  total_return_pct?: number;
+  win_rate?: number;
+  equity_preview?: ShowcaseWallEquityPoint[];
 }
 
 export interface BacktestMetaCorrectionPatch {

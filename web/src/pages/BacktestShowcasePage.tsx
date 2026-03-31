@@ -64,7 +64,10 @@ export function BacktestShowcasePage() {
 
   const [search, setSearch] = useState('')
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
-  const [selectedRunId, setSelectedRunId] = useState('')
+  const [selectedRunId, setSelectedRunId] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('run_id') || ''
+  })
 
   const query = useMemo(
     () => ({
@@ -94,6 +97,16 @@ export function BacktestShowcasePage() {
   )
   const selectedRun =
     showcaseRuns.find((r) => r.run_id === selectedRunId) ?? showcaseRuns[0]
+
+  useEffect(() => {
+    const syncFromQuery = () => {
+      const params = new URLSearchParams(window.location.search)
+      const runID = params.get('run_id') || ''
+      if (runID) setSelectedRunId(runID)
+    }
+    window.addEventListener('popstate', syncFromQuery)
+    return () => window.removeEventListener('popstate', syncFromQuery)
+  }, [])
 
   useEffect(() => {
     if (!showcaseRuns.length) {
@@ -131,11 +144,14 @@ export function BacktestShowcasePage() {
   const wallCards = useMemo(() => {
     const cfg = strategyWallConfig ?? []
     return cfg.map((item, idx) => {
-      const matchedRun = showcaseRuns.find((r) => r.strategy_id === item.strategy_id)
+      const configuredRunID = String(item.showcase_run_id || '').trim()
+      const matchedRun =
+        (configuredRunID ? showcaseRuns.find((r) => r.run_id === configuredRunID) : undefined) ||
+        showcaseRuns.find((r) => r.strategy_id === item.strategy_id)
       return {
         key: item.strategy_id || String(idx),
         name: getPremiumStrategyName(item.strategy_name || `Strategy ${idx + 1}`),
-        runId: matchedRun?.run_id || '',
+        runId: matchedRun?.run_id || configuredRunID || '',
         symbol: matchedRun?.symbols?.[0] || '',
         pnl: matchedRun ? Math.max(0, Number((matchedRun.summary?.equity_last ?? 0) / 1000)) : 0,
         dd: matchedRun?.summary?.max_drawdown_pct ?? 0,

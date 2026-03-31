@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Users, ShieldCheck, Save, RefreshCw } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
-import type { Strategy } from '../types'
+import type { Strategy, BacktestRunMetadata } from '../types'
 import { api } from '../lib/api'
 import { notify } from '../lib/notify'
 import { httpClient } from '../lib/httpClient'
@@ -177,6 +177,8 @@ export function StrategyPermissionPage() {
   const [loadingUserPerm, setLoadingUserPerm] = useState(false)
   const [canManageRoles, setCanManageRoles] = useState(false)
   const [showcaseStrategyIDs, setShowcaseStrategyIDs] = useState<Set<string>>(new Set())
+  const [showcaseRunByStrategyID, setShowcaseRunByStrategyID] = useState<Record<string, string>>({})
+  const [showcaseRuns, setShowcaseRuns] = useState<BacktestRunMetadata[]>([])
   const [loadingShowcase, setLoadingShowcase] = useState(false)
   const [savingShowcase, setSavingShowcase] = useState(false)
 
@@ -184,6 +186,16 @@ export function StrategyPermissionPage() {
     () => users.find((u) => u.id === selectedUserID) || null,
     [users, selectedUserID]
   )
+  const showcaseRunsByStrategyID = useMemo(() => {
+    const byStrategy: Record<string, BacktestRunMetadata[]> = {}
+    for (const run of showcaseRuns) {
+      const strategyID = String(run.strategy_id || '').trim()
+      if (!strategyID) continue
+      if (!byStrategy[strategyID]) byStrategy[strategyID] = []
+      byStrategy[strategyID].push(run)
+    }
+    return byStrategy
+  }, [showcaseRuns])
 
   const loadStrategies = async () => {
     setLoading(true)
@@ -254,6 +266,7 @@ export function StrategyPermissionPage() {
   useEffect(() => {
     void loadStrategies()
     void loadShowcaseStrategies()
+    void loadShowcaseRuns()
   }, [])
 
   useEffect(() => {
@@ -315,8 +328,18 @@ export function StrategyPermissionPage() {
   const onRefresh = async () => {
     await loadStrategies()
     await loadShowcaseStrategies()
+    await loadShowcaseRuns()
     if (hasSearched) {
       await searchUsers()
+    }
+  }
+
+  const loadShowcaseRuns = async () => {
+    try {
+      const resp = await api.getBacktestShowcaseRuns({ limit: 300, offset: 0 })
+      setShowcaseRuns(resp.items || [])
+    } catch (error) {
+      notify.error(getErrorMessage(error, 'Failed to load showcase runs'))
     }
   }
 
@@ -325,6 +348,14 @@ export function StrategyPermissionPage() {
     try {
       const result = await api.getAdminShowcaseStrategies()
       setShowcaseStrategyIDs(new Set(result.strategy_ids || []))
+      const runMap: Record<string, string> = {}
+      for (const item of result.items || []) {
+        const strategyID = String(item.strategy_id || '').trim()
+        const runID = String(item.showcase_run_id || '').trim()
+        if (!strategyID || !runID) continue
+        runMap[strategyID] = runID
+      }
+      setShowcaseRunByStrategyID(runMap)
     } catch (error) {
       notify.error(getErrorMessage(error, 'Failed to load showcase strategy config'))
     } finally {
@@ -337,17 +368,43 @@ export function StrategyPermissionPage() {
       const next = new Set(prev)
       if (next.has(strategyID)) {
         next.delete(strategyID)
+        setShowcaseRunByStrategyID((runMap) => {
+          const nextMap = { ...runMap }
+          delete nextMap[strategyID]
+          return nextMap
+        })
       } else {
         next.add(strategyID)
+        setShowcaseRunByStrategyID((runMap) => {
+          if (runMap[strategyID]) return runMap
+          const firstRun = showcaseRunsByStrategyID[strategyID]?.[0]
+          if (!firstRun?.run_id) return runMap
+          return { ...runMap, [strategyID]: firstRun.run_id }
+        })
       }
       return next
     })
   }
 
   const saveShowcaseStrategies = async () => {
+    const selectedIDs = strategies.map((s) => s.id).filter((id) => showcaseStrategyIDs.has(id))
+    const items = selectedIDs.map((strategyID) => ({
+      strategy_id: strategyID,
+      showcase_run_id: String(showcaseRunByStrategyID[strategyID] || '').trim(),
+    }))
+    const missing = items.find((item) => !item.showcase_run_id)
+    if (missing) {
+      notify.error(
+        language === 'zh'
+          ? `请先为策略选择展示回测：${missing.strategy_id}`
+          : `Please select a showcase run first: ${missing.strategy_id}`
+      )
+      return
+    }
+
     setSavingShowcase(true)
     try {
-      await api.setAdminShowcaseStrategies(Array.from(showcaseStrategyIDs))
+      await api.setAdminShowcaseStrategies(items)
       notify.success(language === 'zh' ? '橱窗策略配置已保存' : 'Showcase strategy config saved')
     } catch (error) {
       notify.error(getErrorMessage(error, 'Failed to save showcase strategy config'))
@@ -529,20 +586,35 @@ export function StrategyPermissionPage() {
             </h2>
             <p className="text-xs text-nofx-text-muted mt-1">
               {language === 'zh'
-                ? '选择需要在回测橱窗照片墙展示的策略。'
-                : 'Choose strategies to display in the backtest showcase wall.'}
+                ? '选择首页要展示的策略，并为每个策略指定对应的回测资金曲线。'
+                : 'Choose strategies for the homepage wall and bind a showcase backtest run for each.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setShowcaseStrategyIDs(new Set(strategies.map((s) => s.id)))}
+              onClick={() => {
+                const allIDs = strategies.map((s) => s.id)
+                setShowcaseStrategyIDs(new Set(allIDs))
+                setShowcaseRunByStrategyID((prev) => {
+                  const next = { ...prev }
+                  for (const strategy of strategies) {
+                    if (next[strategy.id]) continue
+                    const firstRun = showcaseRunsByStrategyID[strategy.id]?.[0]
+                    if (firstRun?.run_id) next[strategy.id] = firstRun.run_id
+                  }
+                  return next
+                })
+              }}
               disabled={strategies.length === 0}
               className="px-3 py-1.5 rounded text-xs border border-nofx-gold/30 text-nofx-text disabled:opacity-40"
             >
               {i18n.selectAll}
             </button>
             <button
-              onClick={() => setShowcaseStrategyIDs(new Set())}
+              onClick={() => {
+                setShowcaseStrategyIDs(new Set())
+                setShowcaseRunByStrategyID({})
+              }}
               className="px-3 py-1.5 rounded text-xs border border-nofx-gold/30 text-nofx-text"
             >
               {i18n.clear}
@@ -563,11 +635,13 @@ export function StrategyPermissionPage() {
             {language === 'zh' ? '正在加载橱窗策略配置...' : 'Loading showcase strategy config...'}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[360px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[420px] overflow-y-auto pr-1">
             {strategies.map((strategy) => {
               const checked = showcaseStrategyIDs.has(strategy.id)
+              const runOptions = showcaseRunsByStrategyID[strategy.id] || []
+              const selectedRunID = showcaseRunByStrategyID[strategy.id] || ''
               return (
-                <label
+                <div
                   key={`showcase-${strategy.id}`}
                   className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                     checked
@@ -581,15 +655,44 @@ export function StrategyPermissionPage() {
                     onChange={() => toggleShowcaseStrategy(strategy.id)}
                     className="mt-0.5"
                   />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-nofx-text truncate">
                       {getPremiumStrategyName(decodeUnicodeText(strategy.name || ''))}
                     </div>
                     <div className="text-xs text-nofx-text-muted mt-1 line-clamp-2">
                       {decodeUnicodeText(strategy.description || i18n.noDescription)}
                     </div>
+                    {checked && (
+                      <div className="mt-2 space-y-1">
+                        <div className="text-[11px] text-nofx-text-muted">
+                          {language === 'zh' ? '展示回测（资金图）' : 'Showcase Backtest Run'}
+                        </div>
+                        <select
+                          value={selectedRunID}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setShowcaseRunByStrategyID((prev) => ({ ...prev, [strategy.id]: value }))
+                          }}
+                          className="w-full rounded px-2 py-1.5 text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                        >
+                          <option value="">{language === 'zh' ? '请选择回测 run' : 'Select run'}</option>
+                          {runOptions.map((run) => (
+                            <option key={run.run_id} value={run.run_id}>
+                              {run.run_id.slice(0, 12)}... | {run.state} | ${(run.summary?.equity_last || 0).toFixed(2)}
+                            </option>
+                          ))}
+                        </select>
+                        {runOptions.length === 0 && (
+                          <div className="text-[11px] text-[#F6465D]">
+                            {language === 'zh'
+                              ? '该策略暂无可展示回测，请先在展示账号跑出回测。'
+                              : 'No showcase run for this strategy yet.'}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </label>
+                </div>
               )
             })}
             {strategies.length === 0 && <div className="text-sm text-nofx-text-muted">{i18n.noStrategies}</div>}
@@ -601,3 +704,4 @@ export function StrategyPermissionPage() {
 }
 
 export default StrategyPermissionPage
+

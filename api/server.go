@@ -163,6 +163,7 @@ func (s *Server) setupRoutes() {
 
 		// Public strategy market (no authentication required)
 		api.GET("/strategies/public", s.handlePublicStrategies)
+		api.GET("/backtest/showcase/wall", s.handlePublicBacktestShowcaseWall)
 
 		// Authentication related routes (no authentication required)
 		api.POST("/register", s.handleRegister)

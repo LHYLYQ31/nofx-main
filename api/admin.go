@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"nofx/backtest"
+	"nofx/store"
 	"os"
 	"sort"
 	"strings"
@@ -386,9 +388,10 @@ func (s *Server) handleAdminListShowcaseStrategies(c *gin.Context) {
 		}
 		ids = append(ids, it.StrategyID)
 		resp = append(resp, gin.H{
-			"strategy_id":   it.StrategyID,
-			"strategy_name": nameByID[it.StrategyID],
-			"sort_order":    it.SortOrder,
+			"strategy_id":     it.StrategyID,
+			"strategy_name":   nameByID[it.StrategyID],
+			"showcase_run_id": strings.TrimSpace(it.ShowcaseRunID),
+			"sort_order":      it.SortOrder,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -400,6 +403,10 @@ func (s *Server) handleAdminListShowcaseStrategies(c *gin.Context) {
 func (s *Server) handleAdminSetShowcaseStrategies(c *gin.Context) {
 	var req struct {
 		StrategyIDs []string `json:"strategy_ids"`
+		Items       []struct {
+			StrategyID    string `json:"strategy_id"`
+			ShowcaseRunID string `json:"showcase_run_id"`
+		} `json:"items"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "Invalid request parameters")
@@ -419,9 +426,75 @@ func (s *Server) handleAdminSetShowcaseStrategies(c *gin.Context) {
 		valid[st.ID] = struct{}{}
 	}
 
-	cleanIDs := make([]string, 0, len(req.StrategyIDs))
-	for _, raw := range req.StrategyIDs {
-		id := strings.TrimSpace(raw)
+	inputItems := make([]struct {
+		StrategyID    string
+		ShowcaseRunID string
+	}, 0, len(req.Items)+len(req.StrategyIDs))
+	if len(req.Items) > 0 {
+		for _, raw := range req.Items {
+			inputItems = append(inputItems, struct {
+				StrategyID    string
+				ShowcaseRunID string
+			}{
+				StrategyID:    raw.StrategyID,
+				ShowcaseRunID: raw.ShowcaseRunID,
+			})
+		}
+	} else {
+		for _, strategyID := range req.StrategyIDs {
+			inputItems = append(inputItems, struct {
+				StrategyID    string
+				ShowcaseRunID string
+			}{
+				StrategyID:    strategyID,
+				ShowcaseRunID: "",
+			})
+		}
+	}
+
+	if len(inputItems) == 0 {
+		if err := s.store.StrategyShowcase().Replace(nil); err != nil {
+			SafeInternalError(c, "Failed to save showcase strategies", err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Showcase strategies updated"})
+		return
+	}
+
+	showcaseOwners, err := s.backtestShowcaseOwnerUserIDSet()
+	if err != nil {
+		SafeInternalError(c, "Resolve showcase owners", err)
+		return
+	}
+	if s.backtestManager == nil {
+		SafeInternalError(c, "backtest manager unavailable", fmt.Errorf("backtest manager unavailable"))
+		return
+	}
+	runStrategyByID := map[string]string{}
+	metas, listErr := s.backtestManager.ListRuns()
+	if listErr != nil {
+		SafeInternalError(c, "List backtest runs", listErr)
+		return
+	}
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+		owner := normalizeUserID(strings.TrimSpace(meta.UserID))
+		if _, ok := showcaseOwners[owner]; !ok {
+			continue
+		}
+		cfg, cfgErr := backtest.LoadConfig(meta.RunID)
+		if cfgErr != nil || cfg == nil {
+			continue
+		}
+		runStrategyByID[meta.RunID] = strings.TrimSpace(cfg.StrategyID)
+	}
+
+	cleanItems := make([]store.StrategyShowcaseUpsert, 0, len(inputItems))
+	seen := map[string]struct{}{}
+	for _, raw := range inputItems {
+		id := strings.TrimSpace(raw.StrategyID)
 		if id == "" {
 			continue
 		}
@@ -429,10 +502,37 @@ func (s *Server) handleAdminSetShowcaseStrategies(c *gin.Context) {
 			SafeBadRequest(c, "strategy_id not found: "+id)
 			return
 		}
-		cleanIDs = append(cleanIDs, id)
+		if _, duplicated := seen[id]; duplicated {
+			continue
+		}
+		seen[id] = struct{}{}
+		runID := strings.TrimSpace(raw.ShowcaseRunID)
+		if len(req.Items) > 0 && runID == "" {
+			SafeBadRequest(c, "showcase_run_id is required for strategy_id: "+id)
+			return
+		}
+		if runID != "" {
+			runStrategyID, ok := runStrategyByID[runID]
+			if !ok {
+				SafeBadRequest(c, "showcase_run_id not found or not in showcase account: "+runID)
+				return
+			}
+			if runStrategyID == "" {
+				SafeBadRequest(c, "showcase_run_id has no strategy bound: "+runID)
+				return
+			}
+			if runStrategyID != id {
+				SafeBadRequest(c, "showcase_run_id strategy mismatch: "+runID)
+				return
+			}
+		}
+		cleanItems = append(cleanItems, store.StrategyShowcaseUpsert{
+			StrategyID:    id,
+			ShowcaseRunID: runID,
+		})
 	}
 
-	if err := s.store.StrategyShowcase().ReplaceStrategyIDs(cleanIDs); err != nil {
+	if err := s.store.StrategyShowcase().Replace(cleanItems); err != nil {
 		SafeInternalError(c, "Failed to save showcase strategies", err)
 		return
 	}

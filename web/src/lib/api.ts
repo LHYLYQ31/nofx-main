@@ -37,6 +37,7 @@ import type {
   TraderExecutionModeCapability,
   BacktestShowcaseUserItem,
   ShowcaseStrategyItem,
+  ShowcaseWallCardItem,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -897,10 +898,13 @@ export const api = {
     }
   },
 
-  async setAdminShowcaseStrategies(strategyIDs: string[]): Promise<void> {
-    const result = await httpClient.put(`${API_BASE}/admin/showcase-strategies`, {
-      strategy_ids: strategyIDs,
-    })
+  async setAdminShowcaseStrategies(
+    payload: string[] | Array<{ strategy_id: string; showcase_run_id?: string }>
+  ): Promise<void> {
+    const body = Array.isArray(payload) && payload.length > 0 && typeof payload[0] !== 'string'
+      ? { items: payload }
+      : { strategy_ids: payload as string[] }
+    const result = await httpClient.put(`${API_BASE}/admin/showcase-strategies`, body)
     if (!result.success) throw new Error('Failed to save showcase strategies')
   },
 
@@ -909,6 +913,14 @@ export const api = {
       `${API_BASE}/backtest/showcase/strategies`
     )
     if (!result.success) throw new Error('Failed to load backtest showcase strategies')
+    return result.data?.items || []
+  },
+
+  async getPublicBacktestShowcaseWall(): Promise<ShowcaseWallCardItem[]> {
+    const result = await httpClient.get<{ items: ShowcaseWallCardItem[] }>(
+      `${API_BASE}/backtest/showcase/wall`
+    )
+    if (!result.success) throw new Error('Failed to load public showcase wall')
     return result.data?.items || []
   },
 

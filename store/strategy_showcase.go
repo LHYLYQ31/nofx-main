@@ -12,11 +12,12 @@ type StrategyShowcaseStore struct {
 }
 
 type StrategyShowcase struct {
-	StrategyID string    `gorm:"column:strategy_id;primaryKey" json:"strategy_id"`
-	SortOrder  int       `gorm:"column:sort_order;not null;default:0;index" json:"sort_order"`
-	Enabled    bool      `gorm:"column:enabled;not null;default:true;index" json:"enabled"`
-	CreatedAt  time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"column:updated_at" json:"updated_at"`
+	StrategyID    string    `gorm:"column:strategy_id;primaryKey" json:"strategy_id"`
+	ShowcaseRunID string    `gorm:"column:showcase_run_id;not null;default:'';index" json:"showcase_run_id"`
+	SortOrder     int       `gorm:"column:sort_order;not null;default:0;index" json:"sort_order"`
+	Enabled       bool      `gorm:"column:enabled;not null;default:true;index" json:"enabled"`
+	CreatedAt     time.Time `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (StrategyShowcase) TableName() string { return "strategy_showcase" }
@@ -41,15 +42,20 @@ func (s *StrategyShowcaseStore) List() ([]*StrategyShowcase, error) {
 	return items, nil
 }
 
-func (s *StrategyShowcaseStore) ReplaceStrategyIDs(strategyIDs []string) error {
+type StrategyShowcaseUpsert struct {
+	StrategyID    string
+	ShowcaseRunID string
+}
+
+func (s *StrategyShowcaseStore) Replace(items []StrategyShowcaseUpsert) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("1 = 1").Delete(&StrategyShowcase{}).Error; err != nil {
 			return err
 		}
 		order := 0
 		seen := map[string]struct{}{}
-		for _, raw := range strategyIDs {
-			id := strings.TrimSpace(raw)
+		for _, raw := range items {
+			id := strings.TrimSpace(raw.StrategyID)
 			if id == "" {
 				continue
 			}
@@ -58,9 +64,10 @@ func (s *StrategyShowcaseStore) ReplaceStrategyIDs(strategyIDs []string) error {
 			}
 			seen[id] = struct{}{}
 			item := &StrategyShowcase{
-				StrategyID: id,
-				SortOrder:  order,
-				Enabled:    true,
+				StrategyID:    id,
+				ShowcaseRunID: strings.TrimSpace(raw.ShowcaseRunID),
+				SortOrder:     order,
+				Enabled:       true,
 			}
 			if err := tx.Create(item).Error; err != nil {
 				return err
@@ -69,4 +76,12 @@ func (s *StrategyShowcaseStore) ReplaceStrategyIDs(strategyIDs []string) error {
 		}
 		return nil
 	})
+}
+
+func (s *StrategyShowcaseStore) ReplaceStrategyIDs(strategyIDs []string) error {
+	items := make([]StrategyShowcaseUpsert, 0, len(strategyIDs))
+	for _, id := range strategyIDs {
+		items = append(items, StrategyShowcaseUpsert{StrategyID: id})
+	}
+	return s.Replace(items)
 }

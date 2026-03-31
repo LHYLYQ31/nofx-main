@@ -74,11 +74,135 @@ func (s *Server) handleBacktestShowcaseStrategies(c *gin.Context) {
 			continue
 		}
 		resp = append(resp, gin.H{
-			"strategy_id":   it.StrategyID,
-			"strategy_name": nameByID[it.StrategyID],
-			"sort_order":    it.SortOrder,
+			"strategy_id":     it.StrategyID,
+			"strategy_name":   nameByID[it.StrategyID],
+			"showcase_run_id": strings.TrimSpace(it.ShowcaseRunID),
+			"sort_order":      it.SortOrder,
 		})
 	}
+	c.JSON(http.StatusOK, gin.H{"items": resp})
+}
+
+func (s *Server) handlePublicBacktestShowcaseWall(c *gin.Context) {
+	if s.backtestManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "backtest manager unavailable"})
+		return
+	}
+	showcaseItems, err := s.store.StrategyShowcase().List()
+	if err != nil {
+		SafeInternalError(c, "List showcase strategies", err)
+		return
+	}
+	if len(showcaseItems) == 0 {
+		c.JSON(http.StatusOK, gin.H{"items": []gin.H{}})
+		return
+	}
+
+	showcaseOwners, err := s.backtestShowcaseOwnerUserIDSet()
+	if err != nil {
+		SafeInternalError(c, "Resolve showcase owners", err)
+		return
+	}
+	metas, err := s.backtestManager.ListRuns()
+	if err != nil {
+		SafeInternalError(c, "List showcase runs", err)
+		return
+	}
+	filtered := make([]*backtest.RunMetadata, 0, len(metas))
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+		owner := normalizeUserID(strings.TrimSpace(meta.UserID))
+		if _, ok := showcaseOwners[owner]; !ok {
+			continue
+		}
+		filtered = append(filtered, meta)
+	}
+	runItems := s.decorateBacktestRunListItems(filtered)
+	runByID := make(map[string]*backtestRunListItem, len(runItems))
+	fallbackRunByStrategy := make(map[string]*backtestRunListItem)
+	for _, run := range runItems {
+		if run == nil {
+			continue
+		}
+		runByID[run.RunID] = run
+		strategyID := strings.TrimSpace(run.StrategyID)
+		if strategyID == "" {
+			continue
+		}
+		if _, exists := fallbackRunByStrategy[strategyID]; !exists {
+			fallbackRunByStrategy[strategyID] = run
+		}
+	}
+
+	strategies, err := s.store.Strategy().ListAll()
+	if err != nil {
+		SafeInternalError(c, "List strategies", err)
+		return
+	}
+	nameByID := make(map[string]string, len(strategies))
+	for _, st := range strategies {
+		if st == nil {
+			continue
+		}
+		nameByID[st.ID] = strings.TrimSpace(st.Name)
+	}
+
+	resp := make([]gin.H, 0, len(showcaseItems))
+	for _, item := range showcaseItems {
+		if item == nil {
+			continue
+		}
+		strategyID := strings.TrimSpace(item.StrategyID)
+		configuredRunID := strings.TrimSpace(item.ShowcaseRunID)
+		run := runByID[configuredRunID]
+		if run == nil {
+			run = fallbackRunByStrategy[strategyID]
+		}
+
+		card := gin.H{
+			"strategy_id":      strategyID,
+			"strategy_name":    nameByID[strategyID],
+			"showcase_run_id":  configuredRunID,
+			"run_id":           "",
+			"state":            "",
+			"symbol":           "",
+			"equity_last":      0.0,
+			"max_drawdown_pct": 0.0,
+			"total_return_pct": 0.0,
+			"win_rate":         0.0,
+			"equity_preview":   []gin.H{},
+		}
+
+		if run != nil {
+			card["run_id"] = run.RunID
+			card["state"] = string(run.State)
+			if len(run.Symbols) > 0 {
+				card["symbol"] = run.Symbols[0]
+			}
+			card["equity_last"] = run.Summary.EquityLast
+			card["max_drawdown_pct"] = run.Summary.MaxDrawdownPct
+			if metrics, metricsErr := backtest.LoadMetrics(run.RunID); metricsErr == nil && metrics != nil {
+				card["total_return_pct"] = metrics.TotalReturnPct
+				card["win_rate"] = metrics.WinRate
+				card["max_drawdown_pct"] = metrics.MaxDrawdownPct
+			}
+			if points, equityErr := s.backtestManager.LoadEquity(run.RunID, "15m", 120); equityErr == nil {
+				preview := make([]gin.H, 0, len(points))
+				for _, p := range points {
+					preview = append(preview, gin.H{
+						"ts":     p.Timestamp,
+						"equity": p.Equity,
+					})
+				}
+				card["equity_preview"] = preview
+			}
+		}
+
+		resp = append(resp, card)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 

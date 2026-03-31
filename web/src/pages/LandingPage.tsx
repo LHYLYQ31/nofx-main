@@ -1,33 +1,44 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import useSWR from 'swr'
 import HeaderBar from '../components/HeaderBar'
 import LoginModal from '../components/landing/LoginModal'
 import { LoginRequiredOverlay } from '../components/LoginRequiredOverlay'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { api } from '../lib/api'
+import type { ShowcaseWallCardItem } from '../types'
 
-const strategyCards = [
-  {
-    title: '大周期趋势跟随者',
-    metrics: '历史年化 +185% | 最大回撤仅 12.4% | 胜率 62%',
-    desc: '滤除震荡，专吃单边。AI 智能追踪大户建仓点。',
-    equity:
-      '10,180 70,165 130,150 190,128 250,112 310,96 370,83 430,70 490,55 550,42 610,30',
-  },
-  {
-    title: 'SMC 聪明钱猎手',
-    metrics: '单笔极高盈亏比 1:4 | 捕捉流动性真空',
-    desc: '高敏捷多空切换，优先打击机构流动性缺口。',
-    equity:
-      '10,176 70,170 130,158 190,146 250,131 310,114 370,98 430,80 490,63 550,46 610,34',
-  },
-  {
-    title: '极端情绪反转（高频）',
-    metrics: '日均开单 3 次 | 胜率 75% | 专治震荡市',
-    desc: '情绪过热即反身交易，快速获利后严格止盈止损。',
-    equity:
-      '10,175 70,160 130,154 190,138 250,123 310,108 370,92 430,79 490,65 550,49 610,36',
-  },
+const fallbackWallCards: ShowcaseWallCardItem[] = [
+  { strategy_id: 'fallback-1', strategy_name: '趋势跟随', total_return_pct: 18.5, max_drawdown_pct: 12.4, win_rate: 62.0 },
+  { strategy_id: 'fallback-2', strategy_name: '波动挤压', total_return_pct: 11.8, max_drawdown_pct: 9.6, win_rate: 58.1 },
+  { strategy_id: 'fallback-3', strategy_name: '突破动量', total_return_pct: 9.4, max_drawdown_pct: 7.8, win_rate: 54.6 },
 ]
+
+const buildEquityPolyline = (points: ShowcaseWallCardItem['equity_preview'] | undefined): string => {
+  const data = Array.isArray(points) ? points : []
+  if (data.length < 2) {
+    return '10,170 70,162 130,152 190,142 250,128 310,114 370,100 430,86 490,74 550,62 610,50'
+  }
+  const min = Math.min(...data.map((p) => p.equity))
+  const max = Math.max(...data.map((p) => p.equity))
+  const span = Math.max(1e-9, max - min)
+  const width = 620
+  const left = 10
+  const top = 20
+  const height = 150
+  return data
+    .map((p, idx) => {
+      const x = left + (idx / Math.max(1, data.length - 1)) * (width - left * 2)
+      const y = top + ((max - p.equity) / span) * height
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
+
+const goTo = (path: string) => {
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
 
 export function LandingPage() {
   const [showLoginModal, setShowLoginModal] = useState(false)
@@ -35,15 +46,32 @@ export function LandingPage() {
   const [loginOverlayFeature, setLoginOverlayFeature] = useState('')
   const { user, logout } = useAuth()
   const { language, setLanguage } = useLanguage()
+  const isZh = language === 'zh'
   const isLoggedIn = !!user
+
+  const { data: wallCardsData } = useSWR('public-showcase-wall', api.getPublicBacktestShowcaseWall, {
+    refreshInterval: 60000,
+  })
+  const wallCards = useMemo(() => {
+    const items = (wallCardsData || []).filter((item) => String(item.strategy_id || '').trim() !== '')
+    return items.length > 0 ? items : fallbackWallCards
+  }, [wallCardsData])
 
   const handleLoginRequired = (featureName: string) => {
     setLoginOverlayFeature(featureName)
     setLoginOverlayOpen(true)
   }
 
-  const scrollToShowcase = () => {
-    document.getElementById('showcase-section')?.scrollIntoView({ behavior: 'smooth' })
+  const handleWallCardClick = (card: ShowcaseWallCardItem) => {
+    const runID = String(card.run_id || card.showcase_run_id || '').trim()
+    if (!runID) return
+    const target = `/backtest?run_id=${encodeURIComponent(runID)}`
+    if (!isLoggedIn) {
+      sessionStorage.setItem('returnUrl', target)
+      setShowLoginModal(true)
+      return
+    }
+    goTo(target)
   }
 
   return (
@@ -66,36 +94,48 @@ export function LandingPage() {
             trader: '/dashboard',
             backtest: '/backtest',
             strategy: '/strategy',
+            'strategy-permissions': '/strategy-permissions',
+            'strategy-webhooks': '/strategy-webhooks',
             debate: '/debate',
             faq: '/faq',
           }
           const path = pathMap[page]
-          if (path) window.location.href = path
+          if (path) goTo(path)
         }}
       />
 
       <div className="min-h-screen bg-[#070A12] text-[#F5F7FA] pt-16">
         <section
-          className="relative px-6 py-20 md:px-10 md:py-28 overflow-hidden"
+          className="relative overflow-hidden py-12 md:py-16"
           style={{
             background:
-              'radial-gradient(110% 120% at 80% 0%, rgba(57,117,255,0.22) 0%, rgba(7,10,18,1) 50%), radial-gradient(90% 90% at 10% 90%, rgba(16,185,129,0.14) 0%, rgba(7,10,18,0.95) 55%)',
+              'radial-gradient(110% 130% at 80% -10%, rgba(57,117,255,0.24) 0%, rgba(7,10,18,1) 55%), radial-gradient(80% 100% at 5% 95%, rgba(16,185,129,0.18) 0%, rgba(7,10,18,0.95) 60%)',
           }}
         >
-          <div className="mx-auto max-w-6xl relative z-10">
-            <p className="text-xs uppercase tracking-[0.25em] text-[#8AB4FF]">NewMoney Club</p>
+          <div className="mx-auto w-full max-w-6xl px-6 md:px-10">
+            <p className="text-xs uppercase tracking-[0.25em] text-[#8AB4FF]">NewMoneyClub</p>
             <h1 className="mt-4 text-4xl font-bold leading-tight md:text-6xl">
-              别再盯盘了。让硅谷的 AI，接管你的加密资产。
+              {isZh ? '别再盯盘了，让 AI 接管你的加密交易。' : 'Stop screen-watching. Let AI run your crypto trading.'}
             </h1>
             <p className="mt-5 max-w-3xl text-base md:text-xl text-[#C5D2E1]">
-              基于大语言模型的情绪感知 + 华尔街毫秒级量化执行。全自动运行，无需下载软件。
+              {isZh
+                ? '策略回测可视化 + 实盘自动执行。先看验证结果，再决定是否跟随。'
+                : 'Backtest-first strategy showcase plus automated execution. Validate first, then decide.'}
             </p>
-            <button
-              onClick={scrollToShowcase}
-              className="mt-8 rounded-lg bg-[#F0B90B] px-6 py-3 text-sm font-bold text-black hover:bg-[#e0ad09] transition"
-            >
-              立即查看实盘战绩
-            </button>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <button
+                onClick={() => document.getElementById('showcase-section')?.scrollIntoView({ behavior: 'smooth' })}
+                className="rounded-lg bg-[#F0B90B] px-6 py-3 text-sm font-bold text-black hover:bg-[#e0ad09] transition"
+              >
+                {isZh ? '立即查看策略橱窗' : 'View Strategy Showcase'}
+              </button>
+              <button
+                onClick={() => goTo('/backtest')}
+                className="rounded-lg border border-[#36506E] bg-[#0B1320] px-6 py-3 text-sm font-semibold text-[#D9E6F2] hover:border-[#4C6E95]"
+              >
+                {isZh ? '进入回测中心' : 'Open Backtest Lab'}
+              </button>
+            </div>
           </div>
           <div className="pointer-events-none absolute inset-0 opacity-20">
             <div className="absolute left-[-10%] top-12 h-64 w-64 rounded-full bg-[#4F8DFF] blur-3xl" />
@@ -103,84 +143,97 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section id="showcase-section" className="mx-auto max-w-6xl px-6 py-16 md:px-10">
-          <h2 className="text-2xl font-bold md:text-3xl">三大“神级策略”橱窗</h2>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {strategyCards.map((card) => (
-              <article
-                key={card.title}
-                className="rounded-xl border border-[#263248] bg-[#0D1321] p-4 shadow-[0_0_30px_rgba(0,0,0,0.25)]"
-              >
-                <div className="mb-3 h-32 w-full rounded-lg border border-[#1F2A3D] bg-[#08101A] p-2">
-                  <svg viewBox="0 0 620 190" className="h-full w-full" preserveAspectRatio="none">
-                    <polyline fill="none" stroke="#10B981" strokeWidth="3" points={card.equity} />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold">{card.title}</h3>
-                <p className="mt-2 text-sm font-semibold text-[#F0B90B]">{card.metrics}</p>
-                <p className="mt-2 text-sm text-[#AFC1D4]">{card.desc}</p>
-              </article>
-            ))}
+        <section id="showcase-section" className="mx-auto w-full max-w-6xl px-6 py-12 md:px-10">
+          <h2 className="text-2xl font-bold md:text-3xl">{isZh ? '官方授权策略橱窗' : 'Official Strategy Showcase'}</h2>
+          <div className="mt-2 text-sm text-[#9BB1C9]">
+            {isZh ? '点击卡片查看对应回测详情；未登录会先引导登录。' : 'Click a card to open its linked backtest run.'}
+          </div>
+          <div className="mt-6 grid gap-5 md:grid-cols-3">
+            {wallCards.map((card) => {
+              const runID = String(card.run_id || card.showcase_run_id || '').trim()
+              const clickable = runID.length > 0
+              return (
+                <article
+                  key={`${card.strategy_id}-${runID || 'no-run'}`}
+                  onClick={() => clickable && handleWallCardClick(card)}
+                  className="rounded-xl border border-[#263248] bg-[#0D1321] p-4 shadow-[0_0_30px_rgba(0,0,0,0.25)]"
+                  style={{ cursor: clickable ? 'pointer' : 'default' }}
+                >
+                  <div className="mb-3 h-32 w-full rounded-lg border border-[#1F2A3D] bg-[#08101A] p-2">
+                    <svg viewBox="0 0 620 190" className="h-full w-full" preserveAspectRatio="none">
+                      <polyline fill="none" stroke="#10B981" strokeWidth="3" points={buildEquityPolyline(card.equity_preview)} />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold truncate">
+                    {String(card.strategy_name || card.strategy_id || 'Strategy')}
+                  </h3>
+                  <p className="mt-2 text-sm font-semibold text-[#F0B90B]">
+                    {isZh ? '总收益率' : 'Return'} {Number(card.total_return_pct || 0).toFixed(2)}% |{' '}
+                    {isZh ? '最大回撤' : 'Max DD'} {Number(card.max_drawdown_pct || 0).toFixed(2)}% |{' '}
+                    {isZh ? '胜率' : 'Win'} {Number(card.win_rate || 0).toFixed(1)}%
+                  </p>
+                  <p className="mt-2 text-sm text-[#AFC1D4] truncate">
+                    {clickable
+                      ? isZh ? `点击查看回测：${runID}` : `Open backtest: ${runID}`
+                      : isZh ? '暂未绑定展示回测 run' : 'No showcase run configured yet'}
+                  </p>
+                </article>
+              )
+            })}
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 py-16 md:px-10">
-          <h2 className="text-2xl font-bold md:text-3xl">黑盒降维打击</h2>
-          <div className="mt-6 overflow-hidden rounded-xl border border-[#263248]">
+        <section className="mx-auto w-full max-w-6xl px-6 py-4 md:px-10">
+          <h2 className="text-2xl font-bold md:text-3xl">{isZh ? '为什么先看回测' : 'Why Backtest First'}</h2>
+          <div className="mt-5 overflow-hidden rounded-xl border border-[#263248]">
             <table className="w-full text-sm">
               <thead className="bg-[#0D1321] text-left">
                 <tr>
-                  <th className="px-4 py-3">对比项</th>
-                  <th className="px-4 py-3">传统买指标散户</th>
-                  <th className="px-4 py-3">NewMoney 俱乐部会员</th>
+                  <th className="px-4 py-3">{isZh ? '对比项' : 'Item'}</th>
+                  <th className="px-4 py-3">{isZh ? '主观交易' : 'Manual Trading'}</th>
+                  <th className="px-4 py-3">NewMoneyClub</th>
                 </tr>
               </thead>
               <tbody className="bg-[#0A111D] text-[#D3DFEB]">
                 <tr className="border-t border-[#1F2A3D]">
-                  <td className="px-4 py-3">执行方式</td>
-                  <td className="px-4 py-3">需要自己盯盘 ❌</td>
-                  <td className="px-4 py-3">AI 7x24 读新闻、毫秒级跟单 ✅</td>
+                  <td className="px-4 py-3">{isZh ? '决策依据' : 'Decision Basis'}</td>
+                  <td className="px-4 py-3">{isZh ? '经验和情绪' : 'Experience and emotion'}</td>
+                  <td className="px-4 py-3">{isZh ? '历史验证 + 策略规则 + AI 执行' : 'Historical validation + strategy rules + AI execution'}</td>
                 </tr>
                 <tr className="border-t border-[#1F2A3D]">
-                  <td className="px-4 py-3">下单延迟</td>
-                  <td className="px-4 py-3">自己下单，滑点高 ❌</td>
-                  <td className="px-4 py-3">云端服务器零延迟 ✅</td>
-                </tr>
-                <tr className="border-t border-[#1F2A3D]">
-                  <td className="px-4 py-3">风险处置</td>
-                  <td className="px-4 py-3">黑天鹅死扛爆仓 ❌</td>
-                  <td className="px-4 py-3">严格移动止损 ✅</td>
+                  <td className="px-4 py-3">{isZh ? '交易纪律' : 'Discipline'}</td>
+                  <td className="px-4 py-3">{isZh ? '容易受波动影响' : 'Easily affected by volatility'}</td>
+                  <td className="px-4 py-3">{isZh ? '统一风控，规则执行' : 'Consistent risk control and rule execution'}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-20 md:px-10">
-          <h2 className="text-2xl font-bold md:text-3xl">收费门槛</h2>
-          <div className="mt-7 grid gap-5 md:grid-cols-2">
+        <section className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10 md:px-10">
+          <h2 className="text-2xl font-bold md:text-3xl">{isZh ? '收费门槛' : 'Plans'}</h2>
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
             <article className="rounded-xl border border-[#263248] bg-[#0D1321] p-6">
-              <h3 className="text-xl font-semibold">青铜会员 / Discord 喊单</h3>
+              <h3 className="text-xl font-semibold">{isZh ? '青铜会员 / 信号跟单' : 'Bronze / Signal Follow'}</h3>
               <p className="mt-3 text-3xl font-bold text-[#F0B90B]">$99/月</p>
-              <p className="mt-3 text-sm text-[#B8CADC]">包含每日核心信号推送，适合资金小的体验用户。</p>
+              <p className="mt-3 text-sm text-[#B8CADC]">
+                {isZh ? '每日策略信号与回测更新，适合轻量跟单和策略观察。' : 'Daily strategy signals and backtest updates.'}
+              </p>
             </article>
             <article className="rounded-xl border border-[#F0B90B] bg-[#131B2B] p-6 shadow-[0_0_30px_rgba(240,185,11,0.15)]">
               <div className="mb-2 inline-flex rounded-full bg-[#F0B90B] px-3 py-1 text-xs font-bold text-black">
-                🔥 仅剩 15 个内测名额
+                {isZh ? '限量内测名额' : 'Limited Beta Slots'}
               </div>
-              <h3 className="text-xl font-semibold">钻石会员 / API 云端全自动托管</h3>
-              <p className="mt-3 text-3xl font-bold text-[#F0B90B]">$499/月 + 盈利分红</p>
-              <p className="mt-3 text-sm text-[#B8CADC]">系统直连你的 Hyperliquid，睡后收入。</p>
+              <h3 className="text-xl font-semibold">{isZh ? '钻石会员 / API 全自动托管' : 'Diamond / API Auto Trading'}</h3>
+              <p className="mt-3 text-3xl font-bold text-[#F0B90B]">$499/月 + 分成</p>
+              <p className="mt-3 text-sm text-[#B8CADC]">
+                {isZh ? '系统直连交易账户，自动执行策略，提供高级风控与运营支持。' : 'Fully automated strategy execution with advanced risk controls.'}
+              </p>
             </article>
           </div>
         </section>
 
-        {showLoginModal && (
-          <LoginModal
-            onClose={() => setShowLoginModal(false)}
-            language={language}
-          />
-        )}
+        {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} language={language} />}
 
         <LoginRequiredOverlay
           isOpen={loginOverlayOpen}
