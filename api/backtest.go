@@ -137,6 +137,7 @@ type backtestCorrectionTradePatch struct {
 	Side            *string  `json:"side"`
 	Quantity        *float64 `json:"qty"`
 	Price           *float64 `json:"price"`
+	EntryPrice      *float64 `json:"entry_price"`
 	Fee             *float64 `json:"fee"`
 	Slippage        *float64 `json:"slippage"`
 	OrderValue      *float64 `json:"order_value"`
@@ -720,6 +721,18 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 
 	var metrics *backtest.Metrics
 	updatedMetrics := false
+	manualRealizedOverrides := map[int64]float64{}
+	currentEvents, err := backtest.LoadTradeEvents(runID)
+	if err != nil {
+		SafeInternalError(c, "Load trade events for correction", err)
+		return
+	}
+	eventByID := make(map[int64]backtest.TradeEvent, len(currentEvents))
+	for _, evt := range currentEvents {
+		if evt.ID > 0 {
+			eventByID[evt.ID] = evt
+		}
+	}
 
 	for _, tradePatch := range req.TradeUpdates {
 		if tradePatch.TradeID <= 0 {
@@ -756,6 +769,7 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 		}
 		if tradePatch.RealizedPnL != nil {
 			updates["realized_pnl"] = *tradePatch.RealizedPnL
+			manualRealizedOverrides[tradePatch.TradeID] = *tradePatch.RealizedPnL
 		}
 		if tradePatch.Leverage != nil {
 			updates["leverage"] = *tradePatch.Leverage
@@ -772,6 +786,69 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 		if tradePatch.Note != nil {
 			updates["note"] = strings.TrimSpace(*tradePatch.Note)
 		}
+
+		if tradePatch.EntryPrice != nil {
+			if *tradePatch.EntryPrice <= 0 {
+				SafeBadRequest(c, "trade_updates.entry_price must be greater than 0")
+				return
+			}
+			baseEvt, ok := eventByID[tradePatch.TradeID]
+			if !ok {
+				SafeBadRequest(c, fmt.Sprintf("trade id %d not found for run", tradePatch.TradeID))
+				return
+			}
+			action := baseEvt.Action
+			if tradePatch.Action != nil {
+				action = strings.TrimSpace(*tradePatch.Action)
+			}
+			sideRaw := baseEvt.Side
+			if tradePatch.Side != nil {
+				sideRaw = strings.TrimSpace(*tradePatch.Side)
+			}
+			qty := baseEvt.Quantity
+			if tradePatch.Quantity != nil {
+				qty = *tradePatch.Quantity
+			}
+			price := baseEvt.Price
+			if tradePatch.Price != nil {
+				price = *tradePatch.Price
+			}
+			fee := baseEvt.Fee
+			if tradePatch.Fee != nil {
+				fee = *tradePatch.Fee
+			}
+			liquidation := baseEvt.LiquidationFlag
+			if tradePatch.LiquidationFlag != nil {
+				liquidation = *tradePatch.LiquidationFlag
+			}
+			side := inferTradeSide(backtest.TradeEvent{
+				Action:          action,
+				Side:            sideRaw,
+				LiquidationFlag: liquidation,
+			})
+			if side == "" {
+				SafeBadRequest(c, "Cannot infer side for entry_price correction")
+				return
+			}
+			isOpen, isClose := inferTradeIntent(action, side, liquidation)
+			if !isClose || isOpen {
+				SafeBadRequest(c, "entry_price is only valid for close trades")
+				return
+			}
+			closeQty := math.Abs(qty)
+			if closeQty <= 0 {
+				SafeBadRequest(c, "trade_updates.qty must be greater than 0 for entry_price correction")
+				return
+			}
+			grossPnL := (price - *tradePatch.EntryPrice) * closeQty
+			if side == "short" {
+				grossPnL = (*tradePatch.EntryPrice - price) * closeQty
+			}
+			manualPnL := grossPnL - fee
+			updates["realized_pnl"] = manualPnL
+			manualRealizedOverrides[tradePatch.TradeID] = manualPnL
+		}
+
 		if len(updates) == 0 {
 			continue
 		}
@@ -788,6 +865,12 @@ func (s *Server) handleBacktestCorrection(c *gin.Context) {
 		if err := s.recalculateTradeRealizedPnL(runID); err != nil {
 			SafeInternalError(c, "Recalculate trade realized PnL", err)
 			return
+		}
+		for tradeID, manualPnL := range manualRealizedOverrides {
+			if err := s.store.Backtest().UpdateTradeEvent(runID, tradeID, map[string]interface{}{"realized_pnl": manualPnL}); err != nil {
+				SafeInternalError(c, "Reapply manual realized PnL override", err)
+				return
+			}
 		}
 		recalculatedMetrics, recalculatedPoints, lastEquity, err := recomputeCorrectionMetrics(runID, meta.Summary.Liquidated)
 		if err != nil {

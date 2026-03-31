@@ -85,6 +85,21 @@ const parseOptionalInt = (value: string): number | undefined => {
   return Number.isInteger(parsed) ? parsed : undefined
 }
 
+const inferCloseTradeEntryPrice = (trade: BacktestTradeEvent): number | undefined => {
+  const action = (trade.action || '').toLowerCase()
+  if (!action.includes('close')) return undefined
+  const qty = Math.abs(Number(trade.qty ?? 0))
+  if (!Number.isFinite(qty) || qty <= 0) return undefined
+  const closePrice = Number(trade.price ?? 0)
+  const realized = Number(trade.realized_pnl ?? 0)
+  if (!Number.isFinite(closePrice) || !Number.isFinite(realized)) return undefined
+  const side = (trade.side || '').toLowerCase()
+  const isLong = side === 'long' || action.includes('long')
+  const inferred = isLong ? closePrice - realized/qty : closePrice + realized/qty
+  if (!Number.isFinite(inferred) || inferred <= 0) return undefined
+  return inferred
+}
+
 type ParseSymbolsResult =
   | { ok: true; symbols: string[] }
   | { ok: false; invalidToken?: string }
@@ -879,6 +894,7 @@ export function BacktestPage() {
     tradeSide: '',
     tradeQty: '',
     tradePrice: '',
+    tradeEntryPrice: '',
     tradeRealizedPnl: '',
     tradeNote: '',
   })
@@ -1319,6 +1335,10 @@ export function BacktestPage() {
       tradeSide: trade.side || '',
       tradeQty: String(trade.qty ?? ''),
       tradePrice: String(trade.price ?? ''),
+      tradeEntryPrice: (() => {
+        const inferred = inferCloseTradeEntryPrice(trade)
+        return inferred !== undefined ? String(inferred) : ''
+      })(),
       tradeRealizedPnl: String(trade.realized_pnl ?? ''),
       tradeNote: trade.note || '',
     })
@@ -1339,13 +1359,17 @@ export function BacktestPage() {
     const tradeSide = correctionForm.tradeSide.trim()
     const tradeQty = parseOptionalFloat(correctionForm.tradeQty)
     const tradePrice = parseOptionalFloat(correctionForm.tradePrice)
+    const tradeEntryPrice = parseOptionalFloat(correctionForm.tradeEntryPrice)
     const tradeRealizedPnl = parseOptionalFloat(correctionForm.tradeRealizedPnl)
     const tradeNote = correctionForm.tradeNote.trim()
 
+    const normalizedAction = tradeAction.toLowerCase()
+    const isCloseTrade = normalizedAction.includes('close')
     const baseAction = (correctionBaseTrade?.action ?? '').trim()
     const baseSide = (correctionBaseTrade?.side ?? '').trim()
     const baseQty = correctionBaseTrade?.qty
     const basePrice = correctionBaseTrade?.price
+    const baseEntryPrice = correctionBaseTrade ? inferCloseTradeEntryPrice(correctionBaseTrade) : undefined
     const baseRealizedPnL = correctionBaseTrade?.realized_pnl
     const baseNote = (correctionBaseTrade?.note ?? '').trim()
 
@@ -1353,6 +1377,9 @@ export function BacktestPage() {
     if (tradeSide !== '' && tradeSide !== baseSide) tradePatch.side = tradeSide
     if (tradeQty !== undefined && Math.abs(tradeQty - (baseQty ?? 0)) > 1e-12) tradePatch.qty = tradeQty
     if (tradePrice !== undefined && Math.abs(tradePrice - (basePrice ?? 0)) > 1e-12) tradePatch.price = tradePrice
+    if (isCloseTrade && tradeEntryPrice !== undefined && Math.abs(tradeEntryPrice - (baseEntryPrice ?? 0)) > 1e-12) {
+      tradePatch.entry_price = tradeEntryPrice
+    }
     if (tradeRealizedPnl !== undefined && Math.abs(tradeRealizedPnl - (baseRealizedPnL ?? 0)) > 1e-12) {
       tradePatch.realized_pnl = tradeRealizedPnl
     }
@@ -2341,6 +2368,20 @@ export function BacktestPage() {
                             style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
                           />
                         </div>
+                        {(correctionForm.tradeAction || '').toLowerCase().includes('close') && (
+                          <div className="space-y-1">
+                            <label className="text-xs" style={{ color: '#848E9C' }}>
+                              {language === 'zh' ? '买入/开仓价' : 'Entry Price'} (
+                              <code>trade_updates[].entry_price</code>)
+                            </label>
+                            <input
+                              value={correctionForm.tradeEntryPrice}
+                              onChange={(e) => setCorrectionForm((p) => ({ ...p, tradeEntryPrice: e.target.value }))}
+                              className="w-full p-2 rounded-lg text-sm"
+                              style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                            />
+                          </div>
+                        )}
                         <div className="space-y-1">
                           <label className="text-xs" style={{ color: '#848E9C' }}>{tr('ui.tradeRealizedPnl')} (
                             <code>trade_updates[].realized_pnl</code>)</label>

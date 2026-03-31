@@ -373,6 +373,7 @@ export interface BacktestTradeCorrectionPatch {
   side?: string;
   qty?: number;
   price?: number;
+  entry_price?: number;
   fee?: number;
   slippage?: number;
   order_value?: number;
