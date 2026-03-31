@@ -7,10 +7,13 @@ import { DeepVoidBackground } from './DeepVoidBackground'
 // import { Input } from './ui/input' // Removed unused import
 import { toast } from 'sonner'
 import { useSystemConfig } from '../hooks/useSystemConfig'
+import { BRANDING } from '../constants/branding'
 
 export function LoginPage() {
   const { language } = useLanguage()
   const { login, loginAdmin } = useAuth()
+  const isZh = language === 'zh'
+  const isId = language === 'id'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -21,6 +24,30 @@ export function LoginPage() {
   const { config: systemConfig } = useSystemConfig()
   const registrationEnabled = systemConfig?.registration_enabled !== false
   const [expiredToastId, setExpiredToastId] = useState<string | number | null>(null)
+
+  const uiText = {
+    backHome: isZh ? '返回首页' : isId ? 'Kembali ke Beranda' : 'Back to Home',
+    title: isZh ? '登录' : isId ? 'Masuk' : 'Sign In',
+    subtitle: isZh
+      ? '请输入账号信息以继续'
+      : isId
+        ? 'Masukkan kredensial akun Anda untuk melanjutkan'
+        : 'Enter your account credentials to continue',
+    panelTitle: isZh ? '账号登录' : isId ? 'Login Akun' : 'Account Login',
+    statusLine1: isZh ? '欢迎使用 NewMoneyClub' : isId ? 'Selamat datang di NewMoneyClub' : 'Welcome to NewMoneyClub',
+    statusLine2: isZh ? '请输入邮箱和密码登录' : isId ? 'Masukkan email dan kata sandi untuk masuk' : 'Please enter your email and password',
+    statusLine3: isZh ? '登录后可继续访问控制台' : isId ? 'Masuk untuk melanjutkan ke dashboard' : 'Sign in to continue to your dashboard',
+    adminKeyLabel: isZh ? '管理员密码' : isId ? 'Kata Sandi Admin' : 'Admin Password',
+    adminPlaceholder: isZh ? '请输入管理员密码' : isId ? 'Masukkan kata sandi admin' : 'Enter admin password',
+    adminChecking: isZh ? '登录中...' : isId ? 'Sedang masuk...' : 'Signing in...',
+    adminSubmit: isZh ? '管理员登录' : isId ? 'Masuk Admin' : 'Admin Sign In',
+    checking: isZh ? '登录中...' : isId ? 'Sedang masuk...' : 'Signing in...',
+    signInAction: isZh ? '登录' : isId ? 'Masuk' : 'Sign In',
+    secureConnection: isZh ? '安全连接已启用' : isId ? 'Koneksi Aman Aktif' : 'Secure Connection Enabled',
+    newUserPrompt: isZh ? '还没有账号？' : isId ? 'Belum punya akun?' : 'New here?',
+    createAccount: isZh ? '注册账号' : isId ? 'Daftar Akun' : 'Create Account',
+    returnHome: isZh ? '返回首页' : isId ? 'Kembali ke Beranda' : 'Return Home',
+  }
 
   // Show notification if user was redirected here due to 401
   useEffect(() => {
@@ -83,7 +110,7 @@ export function LoginPage() {
             className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors group px-3 py-1.5 rounded border border-transparent hover:border-zinc-700 bg-black/20 backdrop-blur-sm"
           >
             <div className="w-2 h-2 rounded-full bg-red-500 group-hover:animate-pulse"></div>
-            <span className="text-xs font-mono uppercase tracking-widest">&lt; CANCEL_LOGIN</span>
+            <span className="text-xs font-mono uppercase tracking-widest">{uiText.backHome}</span>
           </button>
         </div>
 
@@ -93,17 +120,18 @@ export function LoginPage() {
             <div className="relative">
               <div className="absolute -inset-2 bg-nofx-gold/20 rounded-full blur-xl animate-pulse"></div>
               <img
-                src="/icons/logo.jpg"
-                alt="NewMoneyClub Logo"
+                src={BRANDING.logoSrc}
+                alt={BRANDING.logoAlt}
                 className="w-16 h-16 object-contain relative z-10 opacity-90"
               />
             </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tighter text-white uppercase mb-2">
-            <span className="text-nofx-gold">SYSTEM</span> ACCESS
+          <h1 className="text-3xl font-bold tracking-tighter text-white mb-2">
+            <span className="text-nofx-gold">{BRANDING.productName}</span>
+            <span className="ml-2">{uiText.title}</span>
           </h1>
-          <p className="text-zinc-500 text-xs tracking-[0.2em] uppercase">
-            Authentication Protocol v3.0
+          <p className="text-zinc-500 text-xs">
+            {uiText.subtitle}
           </p>
         </div>
 
@@ -123,7 +151,7 @@ export function LoginPage() {
               <div className="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
             </div>
             <div className="text-[10px] text-zinc-600 font-mono flex items-center gap-1">
-              <span className="text-emerald-500">➜</span> login.exe
+              <span className="text-emerald-500">➜</span> {uiText.panelTitle}
             </div>
           </div>
 
@@ -132,28 +160,28 @@ export function LoginPage() {
             <div className="mb-6 font-mono text-xs space-y-1 text-zinc-500 border-b border-zinc-800/50 pb-4">
               <div className="flex gap-2">
                 <span className="text-emerald-500">➜</span>
-                <span>Initiating handshake...</span>
+                <span>{uiText.statusLine1}</span>
               </div>
               <div className="flex gap-2">
                 <span className="text-emerald-500">➜</span>
-                <span>Target: NewMoneyClub CORE HUB</span>
+                <span>{uiText.statusLine2}</span>
               </div>
               <div className="flex gap-2">
                 <span className="text-emerald-500">➜</span>
-                <span>Status: <span className="text-zinc-300">AWAITING CREDENTIALS</span></span>
+                <span>{uiText.statusLine3}</span>
               </div>
             </div>
 
             {adminMode ? (
               <form onSubmit={handleAdminLogin} className="space-y-5">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-nofx-gold mb-1.5 ml-1">Admin Key</label>
+                  <label className="block text-xs uppercase tracking-wider text-nofx-gold mb-1.5 ml-1">{uiText.adminKeyLabel}</label>
                   <input
                     type="password"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     className="w-full bg-black/50 border border-zinc-700 rounded px-4 py-3 text-sm focus:border-nofx-gold focus:ring-1 focus:ring-nofx-gold/50 outline-none transition-all placeholder-zinc-700 text-white font-mono"
-                    placeholder="ENTER_ROOT_PASSWORD"
+                    placeholder={uiText.adminPlaceholder}
                     required
                   />
                 </div>
@@ -169,7 +197,7 @@ export function LoginPage() {
                   disabled={loading}
                   className="w-full bg-nofx-gold text-black font-bold py-3 px-4 rounded text-sm tracking-wide uppercase hover:bg-yellow-400 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed font-mono shadow-[0_0_20px_rgba(255,215,0,0.1)] hover:shadow-[0_0_30px_rgba(255,215,0,0.3)]"
                 >
-                  {loading ? '> VERIFYING...' : '> EXECUTE_LOGIN'}
+                  {loading ? uiText.adminChecking : uiText.adminSubmit}
                 </button>
               </form>
             ) : (
@@ -233,10 +261,10 @@ export function LoginPage() {
                   className="w-full bg-nofx-gold text-black font-bold py-3 px-4 rounded text-sm tracking-wide uppercase hover:bg-yellow-400 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed font-mono shadow-[0_0_15px_rgba(255,215,0,0.1)] hover:shadow-[0_0_25px_rgba(255,215,0,0.25)] flex items-center justify-center gap-2 group"
                 >
                   {loading ? (
-                    <span className="animate-pulse">PROCESSING...</span>
+                    <span className="animate-pulse">{uiText.checking}</span>
                   ) : (
                     <>
-                      <span>AUTHENTICATE</span>
+                      <span>{uiText.signInAction}</span>
                       <span className="group-hover:translate-x-1 transition-transform">-&gt;</span>
                     </>
                   )}
@@ -247,7 +275,7 @@ export function LoginPage() {
 
           {/* Terminal Footer Info */}
           <div className="bg-zinc-900/50 p-3 flex justify-between items-center text-[10px] font-mono text-zinc-600 border-t border-zinc-800">
-            <div>SECURE_CONNECTION: ENCRYPTED</div>
+            <div>{uiText.secureConnection}</div>
             <div>{new Date().toISOString().split('T')[0]}</div>
           </div>
         </div>
@@ -256,19 +284,19 @@ export function LoginPage() {
         {!adminMode && registrationEnabled && (
           <div className="text-center mt-8 space-y-4">
             <p className="text-xs font-mono text-zinc-500">
-              NEW_USER_DETECTED?{' '}
+              {uiText.newUserPrompt}{' '}
               <button
                 onClick={() => window.location.href = '/register'}
                 className="text-nofx-gold hover:underline hover:text-yellow-300 transition-colors ml-1 uppercase"
               >
-                INITIALIZE REGISTRATION
+                {uiText.createAccount}
               </button>
             </p>
             <button
               onClick={() => window.location.href = '/'}
               className="text-[10px] text-zinc-600 hover:text-red-500 transition-colors uppercase tracking-widest hover:underline decoration-red-500/30 font-mono"
             >
-              [ ABORT_SESSION_RETURN_HOME ]
+              {uiText.returnHome}
             </button>
           </div>
         )}
