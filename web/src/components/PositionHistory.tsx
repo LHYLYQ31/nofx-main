@@ -178,7 +178,7 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
           {stat.side || 'Unknown'}
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <div>
           <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
             {t('positionHistory.trades', language)}
@@ -330,6 +330,89 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
         {formatDate(position.exit_time)}
       </td>
     </tr>
+  )
+}
+
+function PositionCard({ position }: { position: HistoricalPosition }) {
+  const side = position.side || ''
+  const isLong = side.toUpperCase() === 'LONG'
+  const realizedPnl = position.realized_pnl || 0
+  const isProfitable = realizedPnl >= 0
+  const sideColor = isLong ? '#0ECB81' : '#F6465D'
+  const pnlColor = isProfitable ? '#0ECB81' : '#F6465D'
+
+  const entryTime = position.entry_time ? new Date(position.entry_time).getTime() : 0
+  const exitTime = position.exit_time ? new Date(position.exit_time).getTime() : 0
+  const holdingMinutes = entryTime && exitTime && exitTime > entryTime ? (exitTime - entryTime) / 60000 : 0
+
+  const entryPrice = position.entry_price || 0
+  const exitPrice = position.exit_price || 0
+  let pnlPct = 0
+  if (entryPrice > 0) {
+    pnlPct = isLong
+      ? ((exitPrice - entryPrice) / entryPrice) * 100
+      : ((entryPrice - exitPrice) / entryPrice) * 100
+  }
+  const displayQty = position.entry_quantity || position.quantity || 0
+
+  return (
+    <div
+      className="rounded-lg p-3 space-y-2"
+      style={{ background: '#11151B', border: '1px solid #2B3139' }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
+          {(position.symbol || '').replace('USDT', '')}
+        </span>
+        <span
+          className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase"
+          style={{
+            background: `${sideColor}22`,
+            color: sideColor,
+            border: `1px solid ${sideColor}44`,
+          }}
+        >
+          {side}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs font-mono" style={{ color: '#848E9C' }}>
+        <div>
+          <div>Entry</div>
+          <div style={{ color: '#EAECEF' }}>{formatPrice(entryPrice)}</div>
+        </div>
+        <div className="text-right">
+          <div>Exit</div>
+          <div style={{ color: '#EAECEF' }}>{formatPrice(exitPrice)}</div>
+        </div>
+        <div>
+          <div>Qty</div>
+          <div style={{ color: '#EAECEF' }}>{formatQuantity(displayQty)}</div>
+        </div>
+        <div className="text-right">
+          <div>Value</div>
+          <div style={{ color: '#EAECEF' }}>{formatNumber(entryPrice * displayQty)}</div>
+        </div>
+      </div>
+
+      <div className="flex items-end justify-between gap-2">
+        <div className="font-mono">
+          <div className="text-xs" style={{ color: '#848E9C' }}>P&L</div>
+          <div className="font-semibold" style={{ color: pnlColor }}>
+            {isProfitable ? '+' : ''}
+            {formatNumber(realizedPnl)}
+          </div>
+          <div className="text-xs" style={{ color: pnlColor }}>
+            {pnlPct >= 0 ? '+' : ''}
+            {pnlPct.toFixed(2)}%
+          </div>
+        </div>
+        <div className="text-right text-xs font-mono" style={{ color: '#848E9C' }}>
+          <div>{formatDuration(holdingMinutes)}</div>
+          <div>{formatDate(position.exit_time)}</div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -657,17 +740,17 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
       >
         {/* Filters */}
         <div
-          className="flex flex-wrap items-center gap-4 p-4"
+          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-4 p-4"
           style={{ borderBottom: '1px solid #2B3139' }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <span className="text-sm" style={{ color: '#848E9C' }}>
               {t('positionHistory.symbol', language)}:
             </span>
             <select
               value={filterSymbol}
               onChange={(e) => setFilterSymbol(e.target.value)}
-              className="rounded px-3 py-1.5 text-sm"
+              className="rounded px-3 py-1.5 text-sm w-full sm:w-auto"
               style={{
                 background: '#0B0E11',
                 border: '1px solid #2B3139',
@@ -683,7 +766,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <span className="text-sm" style={{ color: '#848E9C' }}>
               {t('positionHistory.side', language)}:
             </span>
@@ -704,7 +787,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
             <span className="text-sm" style={{ color: '#848E9C' }}>
               {t('positionHistory.sort', language)}:
             </span>
@@ -718,7 +801,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                 setSortBy(by)
                 setSortOrder(order)
               }}
-              className="rounded px-3 py-1.5 text-sm"
+              className="rounded px-3 py-1.5 text-sm w-full sm:w-auto"
               style={{
                 background: '#0B0E11',
                 border: '1px solid #2B3139',
@@ -734,7 +817,18 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div className="md:hidden p-3 space-y-2">
+          {filteredPositions.map((position) => (
+            <PositionCard key={position.id} position={position} />
+          ))}
+          {filteredPositions.length === 0 && (
+            <div className="py-8 text-center text-sm" style={{ color: '#848E9C' }}>
+              {t('positionHistory.noHistory', language)}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr style={{ background: '#0B0E11' }}>

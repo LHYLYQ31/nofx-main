@@ -21,9 +21,9 @@ export function DataPage() {
       : 'Note: This page no longer embeds nofxos.ai to avoid "refused to connect" browser errors.'
 
   return (
-    <div className="w-full min-h-[calc(100vh-64px)] p-4 md:p-8">
+    <div className="w-full min-h-[calc(100dvh-64px)] p-3 sm:p-4 md:p-8">
       <div
-        className="max-w-4xl mx-auto rounded-2xl p-6 md:p-8"
+        className="max-w-4xl mx-auto rounded-2xl p-4 sm:p-6 md:p-8"
         style={{
           background: 'rgba(17, 21, 27, 0.92)',
           border: '1px solid #2B3139',
@@ -51,12 +51,12 @@ export function DataPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <a
             href="https://nofxos.ai/dashboard"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium w-full sm:w-auto"
             style={{ background: '#F0B90B', color: '#0B0E11' }}
           >
             {openDashboard}
@@ -66,7 +66,7 @@ export function DataPage() {
             href="https://nofxos.ai/api-docs"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium w-full sm:w-auto"
             style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
           >
             {openDocs}

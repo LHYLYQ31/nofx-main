@@ -254,25 +254,25 @@ export function StrategyMarketPage() {
 
   return (
     <DeepVoidBackground className="min-h-screen text-white font-mono py-12">
-      <div className="w-full px-4 md:px-8 space-y-8">
+      <div className="w-full px-3 sm:px-4 md:px-8 space-y-8">
 
         <div className="w-full relative z-10">
 
           {/* Header Section */}
-          <div className="mb-12 border-b border-zinc-800 pb-8 relative">
+          <div className="mb-10 border-b border-zinc-800 pb-6 sm:pb-8 relative">
             <div className="absolute top-0 right-0 p-2 border border-zinc-800 rounded bg-black/50 text-xs text-zinc-500 font-mono hidden md:block">
               SYSTEM_STATUS: <span className="text-emerald-500 animate-pulse">ONLINE</span>
               <br />
               MARKET_UPLINK: <span className="text-emerald-500">ESTABLISHED</span>
             </div>
 
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-center gap-3 sm:gap-4 mb-4">
               <div className="bg-zinc-900 border border-zinc-700 p-3 rounded-none relative group overflow-hidden">
                 <div className="absolute inset-0 bg-nofx-gold/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 <Database className="w-8 h-8 text-nofx-gold relative z-10" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold tracking-tighter text-white uppercase glitch-text" data-text={t.title}>
+                <h1 className="text-2xl sm:text-4xl font-bold tracking-tight sm:tracking-tighter text-white uppercase glitch-text" data-text={t.title}>
                   {t.title}
                 </h1>
                 <p className="text-xs text-nofx-gold tracking-[0.3em] font-bold mt-1">
@@ -280,7 +280,7 @@ export function StrategyMarketPage() {
                 </p>
               </div>
             </div>
-            <p className="text-sm text-zinc-500 max-w-2xl border-l-2 border-zinc-800 pl-4">
+            <p className="text-sm text-zinc-500 max-w-2xl border-l-2 border-zinc-800 pl-3 sm:pl-4">
               {t.description}
             </p>
           </div>
@@ -308,12 +308,12 @@ export function StrategyMarketPage() {
             </div>
 
             {/* Category Filter */}
-            <div className="flex gap-2 bg-zinc-900/50 p-1 border border-zinc-800">
+            <div className="flex w-full md:w-auto flex-wrap gap-2 bg-zinc-900/50 p-1 border border-zinc-800">
               {['all', 'popular', 'recent'].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-4 py-2 text-xs font-mono uppercase tracking-wider transition-all relative overflow-hidden ${selectedCategory === cat
+                  className={`flex-1 md:flex-none px-4 py-2 text-xs font-mono uppercase tracking-wider transition-all relative overflow-hidden ${selectedCategory === cat
                     ? 'text-black font-bold'
                     : 'text-zinc-500 hover:text-white'
                     }`}
@@ -366,7 +366,7 @@ export function StrategyMarketPage() {
 
           {/* Strategy Grid */}
           {!isLoading && filteredStrategies.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               <AnimatePresence>
                 {filteredStrategies.map((strategy, i) => {
                   const displayName = getPremiumStrategyName(strategy.name)
@@ -392,7 +392,7 @@ export function StrategyMarketPage() {
                       {/* Category Side Strip */}
                       <div className={`absolute left-0 top-0 bottom-0 w-[2px] ${style.bg.replace('/5', '/50')}`}></div>
 
-                      <div className="p-6 relative">
+                      <div className="p-4 sm:p-6 relative">
                         {/* Header */}
                         <div className="flex justify-between items-start mb-6">
                           <div className={`p-2 rounded-none border ${style.border} ${style.bg}`}>
@@ -516,18 +516,18 @@ export function StrategyMarketPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="mt-16 mb-20 flex justify-center"
+              className="mt-14 mb-20 flex justify-center"
             >
               <div className="relative group cursor-pointer" onClick={() => window.location.href = '/strategy'}>
                 <div className="absolute -inset-1 bg-gradient-to-r from-nofx-gold to-yellow-600 rounded blur opacity-25 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
-                <div className="relative px-8 py-4 bg-black border border-zinc-800 hover:border-nofx-gold/50 flex items-center gap-4 transition-all">
+                <div className="relative px-4 sm:px-8 py-3 sm:py-4 bg-black border border-zinc-800 hover:border-nofx-gold/50 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 transition-all">
                   <Hexagon className="text-nofx-gold animate-spin-slow" size={24} />
                   <div className="text-left">
                     <div className="text-sm font-bold text-white uppercase tracking-wider group-hover:text-nofx-gold transition-colors">{t.shareYours}</div>
                     <div className="text-[10px] text-zinc-500 font-mono">CONTRIBUTE TO THE GLOBAL DATABASE</div>
                   </div>
-                  <div className="w-[1px] h-8 bg-zinc-800 mx-2"></div>
-                  <div className="text-xs font-mono text-zinc-400 group-hover:translate-x-1 transition-transform">
+                  <div className="hidden sm:block w-[1px] h-8 bg-zinc-800 mx-2"></div>
+                  <div className="text-[11px] sm:text-xs font-mono text-zinc-400 group-hover:translate-x-1 transition-transform">
                     INITIALIZE_UPLOAD -&gt;
                   </div>
                 </div>
