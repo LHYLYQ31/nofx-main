@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import useSWR from 'swr'
 import { api } from '../lib/api'
+import { httpClient } from '../lib/httpClient'
 import type {
   TraderInfo,
   CreateTraderRequest,
@@ -133,7 +134,12 @@ function getExchangeDisplayName(exchangeId: string | undefined, exchanges: Excha
   const exchange = exchanges.find(e => e.id === exchangeId)
   if (!exchange) return exchangeId.substring(0, 8).toUpperCase() + '...' // Show truncated UUID if not found
   const typeName = exchange.exchange_type?.toUpperCase() || exchange.name
-  return exchange.account_name ? `${typeName} - ${exchange.account_name}` : typeName
+  const modeTag =
+    exchange.exchange_type?.toLowerCase() === 'hyperliquid'
+      ? (exchange.testnet ? ' [SIM]' : ' [REAL]')
+      : ''
+  const displayName = `${typeName}${modeTag}`
+  return exchange.account_name ? `${displayName} - ${exchange.account_name}` : displayName
 }
 
 // Helper function to check if exchange is a perp-dex type (wallet-based)
@@ -355,32 +361,23 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   }
 
   const handleCreateTrader = async (data: CreateTraderRequest) => {
-    try {
-      const model = allModels?.find((m) => m.id === data.ai_model_id)
-      const exchange = allExchanges?.find((e) => e.id === data.exchange_id)
+    const model = allModels?.find((m) => m.id === data.ai_model_id)
+    const exchange = allExchanges?.find((e) => e.id === data.exchange_id)
 
-      if (!model?.enabled) {
-        toast.error(t('modelNotConfigured', language))
-        return
-      }
-
-      if (!exchange?.enabled) {
-        toast.error(t('exchangeNotConfigured', language))
-        return
-      }
-
-      await toast.promise(api.createTrader(data), {
-        loading: '正在创建…',
-        success: '创建成功',
-        error: '创建失败',
-      })
-      setShowCreateModal(false)
-      // Immediately refresh traders list for better UX
-      await mutateTraders()
-    } catch (error) {
-      console.error('Failed to create trader:', error)
-      toast.error(t('createTraderFailed', language))
+    if (!model?.enabled) {
+      throw new Error(t('modelNotConfigured', language))
     }
+
+    if (!exchange?.enabled) {
+      throw new Error(t('exchangeNotConfigured', language))
+    }
+
+    const result = await httpClient.post<TraderInfo>('/api/traders', data)
+    if (!result.success) {
+      throw new Error(result.message || t('createTraderFailed', language))
+    }
+    // Immediately refresh traders list for better UX
+    await mutateTraders()
   }
 
   const handleEditTrader = async (traderId: string) => {
@@ -995,6 +992,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                         </div>
                         <div className="text-[10px] text-zinc-500 font-mono flex items-center gap-2">
                           {exchange.type?.toUpperCase() || 'CEX'}
+                          {exchange.exchange_type?.toLowerCase() === 'hyperliquid' && (
+                            <span
+                              className="px-1.5 py-0.5 rounded border"
+                              style={{
+                                borderColor: exchange.testnet ? 'rgba(240,185,11,0.4)' : 'rgba(14,203,129,0.4)',
+                                color: exchange.testnet ? '#F0B90B' : '#0ECB81',
+                                background: exchange.testnet ? 'rgba(240,185,11,0.1)' : 'rgba(14,203,129,0.1)',
+                              }}
+                            >
+                              {exchange.testnet ? 'SIM' : 'REAL'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
