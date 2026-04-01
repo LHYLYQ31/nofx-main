@@ -671,6 +671,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	// Query exchange actual balance, override user input
 	actualBalance := req.InitialBalance // Default to use user input
+	if actualBalance <= 0 {
+		actualBalance = 1000
+	}
 	exchanges, err := s.store.Exchange().List(userID)
 	if err != nil {
 		logger.Infof("鈿狅笍 Failed to get exchange config, using user input for initial balance: %v", err)
@@ -689,6 +692,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		logger.Infof("鈿狅笍 Exchange %s configuration not found, using user input for initial balance", req.ExchangeID)
 	} else if !exchangeCfg.Enabled {
 		logger.Infof("鈿狅笍 Exchange %s not enabled, using user input for initial balance", req.ExchangeID)
+	} else if strings.EqualFold(exchangeCfg.ExchangeType, "hyperliquid") {
+		logger.Infof("Skipping synchronous balance probe for Hyperliquid trader create (exchange=%s), using fallback balance: %.2f USDT", exchangeCfg.ID, actualBalance)
 	} else {
 		// Create temporary trader based on exchange type to query balance
 		var tempTrader trader.Trader

@@ -200,7 +200,7 @@ export function TraderConfigModal({
       await toast.promise(onSave(saveData), {
         loading: t('saving', language),
         success: t('saveSuccess', language),
-        error: t('saveFailed', language),
+        error: (err) => (err instanceof Error && err.message ? err.message : t('saveFailed', language)),
       })
       onClose()
     } catch (error) {

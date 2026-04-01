@@ -80,6 +80,60 @@ func isXyzDexAsset(symbol string) bool {
 	return xyzDexAssets[base]
 }
 
+// sanitizeSpotMeta drops malformed spot universe entries that reference
+// missing token indices. This avoids SDK panic on inconsistent spotMeta payloads.
+func sanitizeSpotMeta(spotMeta *hyperliquid.SpotMeta) (*hyperliquid.SpotMeta, int) {
+	if spotMeta == nil {
+		return &hyperliquid.SpotMeta{}, 0
+	}
+	cleaned := &hyperliquid.SpotMeta{
+		Tokens: append([]hyperliquid.SpotTokenInfo(nil), spotMeta.Tokens...),
+	}
+	if len(spotMeta.Universe) == 0 {
+		return cleaned, 0
+	}
+	cleaned.Universe = make([]hyperliquid.SpotAssetInfo, 0, len(spotMeta.Universe))
+	dropped := 0
+	for _, asset := range spotMeta.Universe {
+		if len(asset.Tokens) == 0 {
+			dropped++
+			continue
+		}
+		tokenIdx := asset.Tokens[0]
+		if tokenIdx < 0 || tokenIdx >= len(spotMeta.Tokens) {
+			dropped++
+			continue
+		}
+		cleaned.Universe = append(cleaned.Universe, asset)
+	}
+	return cleaned, dropped
+}
+
+func newExchangeSafe(
+	ctx context.Context,
+	privateKey *ecdsa.PrivateKey,
+	apiURL string,
+	meta *hyperliquid.Meta,
+	walletAddr string,
+	spotMeta *hyperliquid.SpotMeta,
+) (ex *hyperliquid.Exchange, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("hyperliquid SDK panic during initialization: %v", r)
+		}
+	}()
+	ex = hyperliquid.NewExchange(
+		ctx,
+		privateKey,
+		apiURL,
+		meta,
+		"",         // vault address (empty for personal account)
+		walletAddr, // wallet address
+		spotMeta,
+	)
+	return ex, nil
+}
+
 // NewHyperliquidTrader creates a Hyperliquid trader
 // unifiedAccount: when true, Spot USDC balance is used as collateral for Perp trading
 func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool, unifiedAccount bool) (*HyperliquidTrader, error) {
@@ -125,24 +179,29 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 
 	ctx := context.Background()
 
-	// Create Exchange client (Exchange includes Info functionality)
-	exchange := hyperliquid.NewExchange(
-		ctx,
-		privateKey,
-		apiURL,
-		nil,        // Meta will be fetched automatically
-		"",         // vault address (empty for personal account)
-		walletAddr, // wallet address
-		nil,        // SpotMeta will be fetched automatically
-	)
-
-	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
-
-	// Get meta information (including precision and other configurations)
-	meta, err := exchange.Info().Meta(ctx)
+	// Preload/sanitize metadata to prevent SDK panic on malformed spotMeta payloads.
+	metaProbe := hyperliquid.NewInfo(ctx, apiURL, true, &hyperliquid.Meta{}, &hyperliquid.SpotMeta{})
+	meta, err := metaProbe.Meta(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get meta information: %w", err)
 	}
+	spotMeta, err := metaProbe.SpotMeta(ctx)
+	if err != nil {
+		logger.Infof("⚠️ Failed to fetch spot meta, fallback to empty spot universe: %v", err)
+		spotMeta = &hyperliquid.SpotMeta{}
+	}
+	safeSpotMeta, dropped := sanitizeSpotMeta(spotMeta)
+	if dropped > 0 {
+		logger.Infof("⚠️ Sanitized Hyperliquid spot meta: dropped %d malformed entries", dropped)
+	}
+
+	// Create Exchange client (Exchange includes Info functionality)
+	exchange, err := newExchangeSafe(ctx, privateKey, apiURL, meta, walletAddr, safeSpotMeta)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
 
 	// 🔍 Security check: Validate Agent wallet balance (should be close to 0)
 	// Only check if using separate Agent wallet (not when main wallet is used as agent)
@@ -316,7 +375,7 @@ func (t *HyperliquidTrader) GetBalance() (map[string]interface{}, error) {
 	if t.isUnifiedAccount && spotUSDCBalance > 0 {
 		// Add Spot balance to available balance for trading
 		availableBalance = availableBalance + spotUSDCBalance
-		logger.Infof("✓ Unified Account: Spot %.2f USDC added to available balance (total: %.2f)", 
+		logger.Infof("✓ Unified Account: Spot %.2f USDC added to available balance (total: %.2f)",
 			spotUSDCBalance, availableBalance)
 	}
 

@@ -673,6 +673,46 @@ export function ExchangeConfigModal({
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>
+                      {language === 'zh' ? '账户类型' : 'Account Type'}
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTestnet(false)}
+                        className="px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                        style={{
+                          background: !testnet ? 'rgba(14, 203, 129, 0.15)' : '#0B0E11',
+                          border: `1px solid ${!testnet ? '#0ECB81' : '#2B3139'}`,
+                          color: !testnet ? '#0ECB81' : '#848E9C',
+                        }}
+                      >
+                        {language === 'zh' ? '真实账户 (Mainnet)' : 'Real Account (Mainnet)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTestnet(true)}
+                        className="px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                        style={{
+                          background: testnet ? 'rgba(240, 185, 11, 0.15)' : '#0B0E11',
+                          border: `1px solid ${testnet ? '#F0B90B' : '#2B3139'}`,
+                          color: testnet ? '#F0B90B' : '#848E9C',
+                        }}
+                      >
+                        {language === 'zh' ? '模拟账户 (Testnet)' : 'Simulated Account (Testnet)'}
+                      </button>
+                    </div>
+                    <div className="text-xs" style={{ color: '#848E9C' }}>
+                      {testnet
+                        ? (language === 'zh'
+                          ? '当前连接测试网（模拟交易）。'
+                          : 'Connected to testnet (simulated trading).')
+                        : (language === 'zh'
+                          ? '当前连接主网（真实交易）。'
+                          : 'Connected to mainnet (real trading).')}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-sm font-semibold" style={{ color: '#EAECEF' }}>{t('hyperliquidAgentPrivateKey', language)}</label>
                     <div className="flex gap-2">
                       <input type="text" value={maskSecret(apiKey)} readOnly placeholder={t('enterHyperliquidAgentPrivateKey', language)} className="flex-1 px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} />
