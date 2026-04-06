@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+ï»¿import { useEffect, useMemo, useState } from 'react'
 import { CreditCard, RefreshCw, Save, Shield } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { api } from '../lib/api'
@@ -43,8 +43,8 @@ function displayToCents(value: string): number {
 
 export function PaymentConfigPage() {
   const { language } = useLanguage()
-  const tr = (zh: string, en: string, id: string = en) =>
-    language === 'zh' ? zh : language === 'id' ? id : en
+  const tr = (_zh: string, en: string, id: string = en) =>
+    language === 'id' ? id : en
 
   const [loading, setLoading] = useState(true)
   const [savingProvider, setSavingProvider] = useState(false)
@@ -107,7 +107,7 @@ export function PaymentConfigPage() {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('¼ÓÔØÖ§¸¶ÅäÖÃÊ§°Ü', 'Failed to load payment settings', 'Gagal memuat pengaturan pembayaran')
+          : tr('åŠ è½½æ”¯ä»˜é…ç½®å¤±è´¥', 'Failed to load payment settings', 'Gagal memuat pengaturan pembayaran')
       )
     } finally {
       setLoading(false)
@@ -128,17 +128,17 @@ export function PaymentConfigPage() {
     const baseURL = providerForm.base_url.trim()
     const keyID = providerForm.key_id.trim()
     if (!baseURL || !keyID) {
-      notify.error(tr('Base URL ºÍ Key ID ±ØÌî', 'Base URL and Key ID are required', 'Base URL dan Key ID wajib diisi'))
+      notify.error(tr('Base URL å’Œ Key ID å¿…å¡«', 'Base URL and Key ID are required', 'Base URL dan Key ID wajib diisi'))
       return
     }
 
     if (!providerForm.id && !providerForm.secret_key.trim()) {
-      notify.error(tr('Ê×´Î´´½¨±ØĞëÌîĞ´ Secret Key', 'Secret Key is required for new config', 'Secret Key wajib untuk konfigurasi baru'))
+      notify.error(tr('é¦–æ¬¡åˆ›å»ºå¿…é¡»å¡«å†™ Secret Key', 'Secret Key is required for new config', 'Secret Key wajib untuk konfigurasi baru'))
       return
     }
 
     if (!providerForm.id && !providerForm.webhook_secret.trim()) {
-      notify.error(tr('Ê×´Î´´½¨±ØĞëÌîĞ´ Webhook Secret', 'Webhook Secret is required for new config', 'Webhook Secret wajib untuk konfigurasi baru'))
+      notify.error(tr('é¦–æ¬¡åˆ›å»ºå¿…é¡»å¡«å†™ Webhook Secret', 'Webhook Secret is required for new config', 'Webhook Secret wajib untuk konfigurasi baru'))
       return
     }
 
@@ -156,13 +156,13 @@ export function PaymentConfigPage() {
         is_default: providerForm.is_default,
         version: providerForm.version,
       })
-      notify.success(tr('Ö§¸¶ÅäÖÃÒÑ±£´æ', 'Payment provider config saved', 'Konfigurasi pembayaran tersimpan'))
+      notify.success(tr('æ”¯ä»˜é…ç½®å·²ä¿å­˜', 'Payment provider config saved', 'Konfigurasi pembayaran tersimpan'))
       await loadAll()
     } catch (error) {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('±£´æÖ§¸¶ÅäÖÃÊ§°Ü', 'Failed to save payment provider config', 'Gagal menyimpan konfigurasi pembayaran')
+          : tr('ä¿å­˜æ”¯ä»˜é…ç½®å¤±è´¥', 'Failed to save payment provider config', 'Gagal menyimpan konfigurasi pembayaran')
       )
     } finally {
       setSavingProvider(false)
@@ -177,7 +177,7 @@ export function PaymentConfigPage() {
 
   const savePlan = async (plan: MembershipPlanItem) => {
     if (!plan.name.trim()) {
-      notify.error(tr('Ì×²ÍÃû³Æ²»ÄÜÎª¿Õ', 'Plan name is required', 'Nama paket wajib diisi'))
+      notify.error(tr('å¥—é¤åç§°ä¸èƒ½ä¸ºç©º', 'Plan name is required', 'Nama paket wajib diisi'))
       return
     }
 
@@ -186,7 +186,7 @@ export function PaymentConfigPage() {
     } catch {
       notify.error(
         tr(
-          `Ì×²Í ${plan.code} µÄÈ¨Òæ JSON ¸ñÊ½´íÎó`,
+          `å¥—é¤ ${plan.code} çš„æƒç›Š JSON æ ¼å¼é”™è¯¯`,
           `Entitlements JSON is invalid for plan ${plan.code}`,
           `JSON entitlements tidak valid untuk paket ${plan.code}`
         )
@@ -210,7 +210,7 @@ export function PaymentConfigPage() {
       })
       notify.success(
         tr(
-          `Ì×²Í ${plan.code} ÒÑ±£´æ`,
+          `å¥—é¤ ${plan.code} å·²ä¿å­˜`,
           `Membership plan ${plan.code} saved`,
           `Paket membership ${plan.code} tersimpan`
         )
@@ -220,7 +220,7 @@ export function PaymentConfigPage() {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('±£´æ»áÔ±Ì×²ÍÊ§°Ü', 'Failed to save membership plan', 'Gagal menyimpan paket membership')
+          : tr('ä¿å­˜ä¼šå‘˜å¥—é¤å¤±è´¥', 'Failed to save membership plan', 'Gagal menyimpan paket membership')
       )
     } finally {
       setSavingPlanCode('')
@@ -233,7 +233,7 @@ export function PaymentConfigPage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
             <CreditCard className="h-5 w-5" />
-            {tr('Ö§¸¶²ÎÊıÅäÖÃ£¨Infini£©', 'Payment Provider Config (Infini)', 'Konfigurasi Payment Provider (Infini)')}
+            {tr('æ”¯ä»˜å‚æ•°é…ç½®ï¼ˆInfiniï¼‰', 'Payment Provider Config (Infini)', 'Konfigurasi Payment Provider (Infini)')}
           </h2>
           <button
             type="button"
@@ -242,7 +242,7 @@ export function PaymentConfigPage() {
             style={{ borderColor: '#2B3139', color: '#AEB4BC' }}
           >
             <RefreshCw className="h-4 w-4" />
-            {tr('Ë¢ĞÂ', 'Refresh', 'Muat Ulang')}
+            {tr('åˆ·æ–°', 'Refresh', 'Muat Ulang')}
           </button>
         </div>
 
@@ -253,7 +253,7 @@ export function PaymentConfigPage() {
             className="rounded border bg-transparent px-3 py-2"
             style={{ borderColor: '#2B3139', color: '#EAECEF' }}
           >
-            <option value="">{tr('ĞÂ½¨ÅäÖÃ', 'New Config', 'Konfigurasi Baru')}</option>
+            <option value="">{tr('æ–°å»ºé…ç½®', 'New Config', 'Konfigurasi Baru')}</option>
             {providerConfigs.map((item) => (
               <option key={item.id} value={item.id}>
                 {`${item.display_name || item.environment} v${item.version}${item.is_default ? ' (default)' : ''}`}
@@ -264,7 +264,7 @@ export function PaymentConfigPage() {
           <input
             value={providerForm.display_name}
             onChange={(e) => setProviderForm((prev) => ({ ...prev, display_name: e.target.value }))}
-            placeholder={tr('ÏÔÊ¾Ãû³Æ', 'Display name', 'Nama tampilan')}
+            placeholder={tr('æ˜¾ç¤ºåç§°', 'Display name', 'Nama tampilan')}
             className="rounded border px-3 py-2"
             style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
           />
@@ -300,7 +300,7 @@ export function PaymentConfigPage() {
             onChange={(e) => setProviderForm((prev) => ({ ...prev, secret_key: e.target.value }))}
             placeholder={
               selectedProvider?.has_secret_key
-                ? tr('Áô¿ÕÔòÑØÓÃ¾É Secret Key', 'Leave blank to keep existing Secret Key', 'Kosongkan untuk tetap memakai Secret Key lama')
+                ? tr('ç•™ç©ºåˆ™æ²¿ç”¨æ—§ Secret Key', 'Leave blank to keep existing Secret Key', 'Kosongkan untuk tetap memakai Secret Key lama')
                 : 'secret_key'
             }
             className="rounded border px-3 py-2 md:col-span-2"
@@ -312,7 +312,7 @@ export function PaymentConfigPage() {
             onChange={(e) => setProviderForm((prev) => ({ ...prev, webhook_secret: e.target.value }))}
             placeholder={
               selectedProvider?.has_webhook_secret
-                ? tr('Áô¿ÕÔòÑØÓÃ¾É Webhook Secret', 'Leave blank to keep existing Webhook Secret', 'Kosongkan untuk tetap memakai Webhook Secret lama')
+                ? tr('ç•™ç©ºåˆ™æ²¿ç”¨æ—§ Webhook Secret', 'Leave blank to keep existing Webhook Secret', 'Kosongkan untuk tetap memakai Webhook Secret lama')
                 : 'webhook_secret'
             }
             className="rounded border px-3 py-2 md:col-span-2"
@@ -326,7 +326,7 @@ export function PaymentConfigPage() {
                 checked={providerForm.enabled}
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, enabled: e.target.checked }))}
               />
-              {tr('ÆôÓÃ', 'Enabled', 'Aktif')}
+              {tr('å¯ç”¨', 'Enabled', 'Aktif')}
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -334,14 +334,14 @@ export function PaymentConfigPage() {
                 checked={providerForm.is_default}
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, is_default: e.target.checked }))}
               />
-              {tr('ÉèÎªÄ¬ÈÏ', 'Set default', 'Jadikan default')}
+              {tr('è®¾ä¸ºé»˜è®¤', 'Set default', 'Jadikan default')}
             </label>
           </div>
         </div>
 
         <div className="mb-4 text-xs" style={{ color: '#848E9C' }}>
           {tr(
-            'ÌáÊ¾£ºÖ§¸¶²ÎÊı´æÊı¾İ¿â¡£Ç©ÃûÃÜÔ¿¼ÓÃÜ´æ´¢£»ÏÂµ¥Ê±ºó¶Ë»á¶¯Ì¬¼ÓÔØµ±Ç°ÆôÓÃÅäÖÃ¡£',
+            'æç¤ºï¼šæ”¯ä»˜å‚æ•°å­˜æ•°æ®åº“ã€‚ç­¾åå¯†é’¥åŠ å¯†å­˜å‚¨ï¼›ä¸‹å•æ—¶åç«¯ä¼šåŠ¨æ€åŠ è½½å½“å‰å¯ç”¨é…ç½®ã€‚',
             'Tip: Payment params are stored in DB. Secrets are encrypted; runtime uses active config dynamically.',
             'Tips: Parameter pembayaran disimpan di DB. Secret dienkripsi; runtime memuat konfigurasi aktif secara dinamis.'
           )}
@@ -356,16 +356,16 @@ export function PaymentConfigPage() {
         >
           <Save className="h-4 w-4" />
           {savingProvider
-            ? tr('±£´æÖĞ...', 'Saving...', 'Menyimpan...')
-            : tr('±£´æÖ§¸¶ÅäÖÃ', 'Save Payment Config', 'Simpan Konfigurasi Pembayaran')}
+            ? tr('ä¿å­˜ä¸­...', 'Saving...', 'Menyimpan...')
+            : tr('ä¿å­˜æ”¯ä»˜é…ç½®', 'Save Payment Config', 'Simpan Konfigurasi Pembayaran')}
         </button>
 
         <div className="mt-4 space-y-2">
           {loading ? (
-            <div style={{ color: '#848E9C' }}>{tr('¼ÓÔØÖĞ...', 'Loading...', 'Memuat...')}</div>
+            <div style={{ color: '#848E9C' }}>{tr('åŠ è½½ä¸­...', 'Loading...', 'Memuat...')}</div>
           ) : providerConfigs.length === 0 ? (
             <div style={{ color: '#848E9C' }}>
-              {tr('ÔİÎŞÖ§¸¶ÅäÖÃ£¬ÇëÏÈ´´½¨Ò»Ìõ¡£', 'No payment configs yet. Create your first one.', 'Belum ada konfigurasi pembayaran. Buat konfigurasi pertama.')}
+              {tr('æš‚æ— æ”¯ä»˜é…ç½®ï¼Œè¯·å…ˆåˆ›å»ºä¸€æ¡ã€‚', 'No payment configs yet. Create your first one.', 'Belum ada konfigurasi pembayaran. Buat konfigurasi pertama.')}
             </div>
           ) : (
             providerConfigs.map((item) => (
@@ -380,10 +380,10 @@ export function PaymentConfigPage() {
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <span style={{ color: item.enabled ? '#0ECB81' : '#F6465D' }}>
-                    {item.enabled ? tr('ÆôÓÃ', 'Enabled', 'Aktif') : tr('½ûÓÃ', 'Disabled', 'Nonaktif')}
+                    {item.enabled ? tr('å¯ç”¨', 'Enabled', 'Aktif') : tr('ç¦ç”¨', 'Disabled', 'Nonaktif')}
                   </span>
                   {item.is_default ? (
-                    <span style={{ color: '#F0B90B' }}>{tr('Ä¬ÈÏ', 'Default', 'Default')}</span>
+                    <span style={{ color: '#F0B90B' }}>{tr('é»˜è®¤', 'Default', 'Default')}</span>
                   ) : null}
                 </div>
               </div>
@@ -395,7 +395,7 @@ export function PaymentConfigPage() {
       <section className="rounded-xl border p-4" style={{ background: '#11161E', borderColor: '#2B3139' }}>
         <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
           <Shield className="h-5 w-5" />
-          {tr('»áÔ±Ì×²ÍÅäÖÃ', 'Membership Plan Config', 'Konfigurasi Paket Membership')}
+          {tr('ä¼šå‘˜å¥—é¤é…ç½®', 'Membership Plan Config', 'Konfigurasi Paket Membership')}
         </h2>
 
         <div className="space-y-4">
@@ -404,7 +404,7 @@ export function PaymentConfigPage() {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <div className="text-base font-semibold" style={{ color: '#EAECEF' }}>{plan.code}</div>
-                  <div className="text-xs" style={{ color: '#848E9C' }}>{tr('¼Û¸ñ°´·Ö´æ´¢£¬Ç°¶ËÕ¹Ê¾ÃÀÔª', 'Price stored in cents, displayed as USD', 'Harga disimpan sen, ditampilkan sebagai USD')}</div>
+                  <div className="text-xs" style={{ color: '#848E9C' }}>{tr('ä»·æ ¼æŒ‰åˆ†å­˜å‚¨ï¼Œå‰ç«¯å±•ç¤ºç¾å…ƒ', 'Price stored in cents, displayed as USD', 'Harga disimpan sen, ditampilkan sebagai USD')}</div>
                 </div>
                 <button
                   type="button"
@@ -415,8 +415,8 @@ export function PaymentConfigPage() {
                 >
                   <Save className="h-4 w-4" />
                   {savingPlanCode === plan.code
-                    ? tr('±£´æÖĞ...', 'Saving...', 'Menyimpan...')
-                    : tr('±£´æÌ×²Í', 'Save Plan', 'Simpan Paket')}
+                    ? tr('ä¿å­˜ä¸­...', 'Saving...', 'Menyimpan...')
+                    : tr('ä¿å­˜å¥—é¤', 'Save Plan', 'Simpan Paket')}
                 </button>
               </div>
 
@@ -424,7 +424,7 @@ export function PaymentConfigPage() {
                 <input
                   value={plan.name}
                   onChange={(e) => updatePlan(plan.code, 'name', e.target.value)}
-                  placeholder={tr('Ãû³Æ', 'Name', 'Nama')}
+                  placeholder={tr('åç§°', 'Name', 'Nama')}
                   className="rounded border px-3 py-2"
                   style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
                 />
@@ -489,14 +489,14 @@ export function PaymentConfigPage() {
                     checked={plan.enabled}
                     onChange={(e) => updatePlan(plan.code, 'enabled', e.target.checked)}
                   />
-                  {tr('ÆôÓÃÌ×²Í', 'Plan Enabled', 'Paket Aktif')}
+                  {tr('å¯ç”¨å¥—é¤', 'Plan Enabled', 'Paket Aktif')}
                 </label>
                 <div />
 
                 <textarea
                   value={plan.description}
                   onChange={(e) => updatePlan(plan.code, 'description', e.target.value)}
-                  placeholder={tr('ÃèÊö', 'Description', 'Deskripsi')}
+                  placeholder={tr('æè¿°', 'Description', 'Deskripsi')}
                   className="rounded border px-3 py-2 md:col-span-3"
                   rows={2}
                   style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
@@ -518,3 +518,4 @@ export function PaymentConfigPage() {
     </div>
   )
 }
+
