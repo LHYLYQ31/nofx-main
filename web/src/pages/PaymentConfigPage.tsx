@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
-import { CreditCard, RefreshCw, Save, Shield } from 'lucide-react'
+import { CreditCard, Plus, RefreshCw, Save, Shield } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { api } from '../lib/api'
 import { notify } from '../lib/notify'
@@ -41,14 +41,22 @@ function displayToCents(value: string): number {
   return Math.round(parsed * 100)
 }
 
+function fieldLabel(label: string) {
+  return (
+    <div className="mb-1 text-xs" style={{ color: '#848E9C' }}>
+      {label}
+    </div>
+  )
+}
+
 export function PaymentConfigPage() {
   const { language } = useLanguage()
-  const tr = (_zh: string, en: string, id: string = en) =>
-    language === 'id' ? id : en
+  const tr = (zh: string, en: string) => (language === 'zh' ? zh : en)
 
   const [loading, setLoading] = useState(true)
   const [savingProvider, setSavingProvider] = useState(false)
   const [savingPlanCode, setSavingPlanCode] = useState<string>('')
+  const [newPlanCode, setNewPlanCode] = useState('')
 
   const [providerConfigs, setProviderConfigs] = useState<PaymentProviderConfigItem[]>([])
   const [selectedProviderConfigID, setSelectedProviderConfigID] = useState('')
@@ -107,7 +115,7 @@ export function PaymentConfigPage() {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('加载支付配置失败', 'Failed to load payment settings', 'Gagal memuat pengaturan pembayaran')
+          : tr('加载支付配置失败', 'Failed to load payment settings')
       )
     } finally {
       setLoading(false)
@@ -128,17 +136,17 @@ export function PaymentConfigPage() {
     const baseURL = providerForm.base_url.trim()
     const keyID = providerForm.key_id.trim()
     if (!baseURL || !keyID) {
-      notify.error(tr('Base URL 和 Key ID 必填', 'Base URL and Key ID are required', 'Base URL dan Key ID wajib diisi'))
+      notify.error(tr('Base URL 和 Key ID 必填', 'Base URL and Key ID are required'))
       return
     }
 
     if (!providerForm.id && !providerForm.secret_key.trim()) {
-      notify.error(tr('首次创建必须填写 Secret Key', 'Secret Key is required for new config', 'Secret Key wajib untuk konfigurasi baru'))
+      notify.error(tr('首次创建必须填写 Secret Key', 'Secret Key is required for new config'))
       return
     }
 
     if (!providerForm.id && !providerForm.webhook_secret.trim()) {
-      notify.error(tr('首次创建必须填写 Webhook Secret', 'Webhook Secret is required for new config', 'Webhook Secret wajib untuk konfigurasi baru'))
+      notify.error(tr('首次创建必须填写 Webhook Secret', 'Webhook Secret is required for new config'))
       return
     }
 
@@ -156,13 +164,13 @@ export function PaymentConfigPage() {
         is_default: providerForm.is_default,
         version: providerForm.version,
       })
-      notify.success(tr('支付配置已保存', 'Payment provider config saved', 'Konfigurasi pembayaran tersimpan'))
+      notify.success(tr('支付配置已保存', 'Payment provider config saved'))
       await loadAll()
     } catch (error) {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('保存支付配置失败', 'Failed to save payment provider config', 'Gagal menyimpan konfigurasi pembayaran')
+          : tr('保存支付配置失败', 'Failed to save payment provider config')
       )
     } finally {
       setSavingProvider(false)
@@ -175,9 +183,43 @@ export function PaymentConfigPage() {
     )
   }
 
+  const addPlan = () => {
+    const code = newPlanCode.trim().toLowerCase()
+    if (!code) {
+      notify.error(tr('请输入套餐编码（例如 silver）', 'Please enter a plan code (e.g. silver)'))
+      return
+    }
+    if (!/^[a-z0-9_-]+$/.test(code)) {
+      notify.error(tr('套餐编码仅支持小写字母、数字、-、_', 'Plan code only supports lowercase letters, numbers, - and _'))
+      return
+    }
+    if (plans.some((plan) => plan.code === code)) {
+      notify.error(tr('该套餐编码已存在', 'This plan code already exists'))
+      return
+    }
+
+    const maxSort = plans.reduce((max, item) => Math.max(max, item.sort_order), 0)
+    const created: MembershipPlanItem = {
+      code,
+      name: code,
+      description: '',
+      price_cents: 0,
+      currency: 'USD',
+      billing_cycle: 'monthly',
+      revenue_share_bps: 0,
+      seat_limit: 0,
+      enabled: true,
+      sort_order: maxSort + 10,
+      entitlements: '{}',
+    }
+    setPlans((prev) => [created, ...prev])
+    setNewPlanCode('')
+    notify.success(tr(`已新增套餐 ${code}，请填写参数后点击“保存套餐”`, `Plan ${code} added. Fill fields and click "Save Plan"`))
+  }
+
   const savePlan = async (plan: MembershipPlanItem) => {
     if (!plan.name.trim()) {
-      notify.error(tr('套餐名称不能为空', 'Plan name is required', 'Nama paket wajib diisi'))
+      notify.error(tr('套餐名称不能为空', 'Plan name is required'))
       return
     }
 
@@ -187,8 +229,7 @@ export function PaymentConfigPage() {
       notify.error(
         tr(
           `套餐 ${plan.code} 的权益 JSON 格式错误`,
-          `Entitlements JSON is invalid for plan ${plan.code}`,
-          `JSON entitlements tidak valid untuk paket ${plan.code}`
+          `Entitlements JSON is invalid for plan ${plan.code}`
         )
       )
       return
@@ -208,19 +249,13 @@ export function PaymentConfigPage() {
         sort_order: plan.sort_order,
         entitlements: plan.entitlements,
       })
-      notify.success(
-        tr(
-          `套餐 ${plan.code} 已保存`,
-          `Membership plan ${plan.code} saved`,
-          `Paket membership ${plan.code} tersimpan`
-        )
-      )
+      notify.success(tr(`套餐 ${plan.code} 已保存`, `Membership plan ${plan.code} saved`))
       await loadAll()
     } catch (error) {
       notify.error(
         error instanceof Error
           ? error.message
-          : tr('保存会员套餐失败', 'Failed to save membership plan', 'Gagal menyimpan paket membership')
+          : tr('保存会员套餐失败', 'Failed to save membership plan')
       )
     } finally {
       setSavingPlanCode('')
@@ -233,100 +268,127 @@ export function PaymentConfigPage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
             <CreditCard className="h-5 w-5" />
-            {tr('支付参数配置（Infini）', 'Payment Provider Config (Infini)', 'Konfigurasi Payment Provider (Infini)')}
+            {tr('支付参数配置（Infini）', 'Payment Provider Config (Infini)')}
           </h2>
           <button
             type="button"
             onClick={() => void loadAll()}
+            disabled={loading}
             className="flex items-center gap-2 rounded border px-3 py-2 text-sm"
             style={{ borderColor: '#2B3139', color: '#AEB4BC' }}
           >
             <RefreshCw className="h-4 w-4" />
-            {tr('刷新', 'Refresh', 'Muat Ulang')}
+            {tr('刷新', 'Refresh')}
           </button>
         </div>
+        {loading ? (
+          <div className="mb-3 text-xs" style={{ color: '#848E9C' }}>
+            {tr('正在加载配置...', 'Loading settings...')}
+          </div>
+        ) : null}
 
         <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <select
-            value={selectedProviderConfigID}
-            onChange={(e) => onSelectProvider(e.target.value)}
-            className="rounded border bg-transparent px-3 py-2"
-            style={{ borderColor: '#2B3139', color: '#EAECEF' }}
-          >
-            <option value="">{tr('新建配置', 'New Config', 'Konfigurasi Baru')}</option>
-            {providerConfigs.map((item) => (
-              <option key={item.id} value={item.id}>
-                {`${item.display_name || item.environment} v${item.version}${item.is_default ? ' (default)' : ''}`}
-              </option>
-            ))}
-          </select>
+          <div>
+            {fieldLabel(tr('配置版本', 'Config Version'))}
+            <select
+              value={selectedProviderConfigID}
+              onChange={(e) => onSelectProvider(e.target.value)}
+              className="w-full rounded border bg-transparent px-3 py-2"
+              style={{ borderColor: '#2B3139', color: '#EAECEF' }}
+            >
+              <option value="">{tr('新建配置', 'New Config')}</option>
+              {providerConfigs.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {`${item.display_name || item.environment} v${item.version}${item.is_default ? ' (default)' : ''}`}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <input
-            value={providerForm.display_name}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, display_name: e.target.value }))}
-            placeholder={tr('显示名称', 'Display name', 'Nama tampilan')}
-            className="rounded border px-3 py-2"
-            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-          />
+          <div>
+            {fieldLabel(tr('显示名称', 'Display Name'))}
+            <input
+              value={providerForm.display_name}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, display_name: e.target.value }))}
+              placeholder={tr('例如：Infini Production', 'e.g. Infini Production')}
+              className="w-full rounded border px-3 py-2"
+              style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+            />
+          </div>
 
-          <select
-            value={providerForm.environment}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, environment: e.target.value }))}
-            className="rounded border bg-transparent px-3 py-2"
-            style={{ borderColor: '#2B3139', color: '#EAECEF' }}
-          >
-            <option value="production">production</option>
-            <option value="sandbox">sandbox</option>
-          </select>
+          <div>
+            {fieldLabel(tr('环境', 'Environment'))}
+            <select
+              value={providerForm.environment}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, environment: e.target.value }))}
+              className="w-full rounded border bg-transparent px-3 py-2"
+              style={{ borderColor: '#2B3139', color: '#EAECEF' }}
+            >
+              <option value="production">production</option>
+              <option value="sandbox">sandbox</option>
+            </select>
+          </div>
 
-          <input
-            value={providerForm.base_url}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, base_url: e.target.value }))}
-            placeholder="https://openapi.infini.money"
-            className="rounded border px-3 py-2 md:col-span-2"
-            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-          />
+          <div className="md:col-span-2">
+            {fieldLabel('Base URL')}
+            <input
+              value={providerForm.base_url}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, base_url: e.target.value }))}
+              placeholder="https://openapi.infini.money"
+              className="w-full rounded border px-3 py-2"
+              style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+            />
+          </div>
 
-          <input
-            value={providerForm.key_id}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, key_id: e.target.value }))}
-            placeholder="key_id"
-            className="rounded border px-3 py-2"
-            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-          />
+          <div>
+            {fieldLabel(tr('公钥 / Key ID', 'Public Key / Key ID'))}
+            <input
+              value={providerForm.key_id}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, key_id: e.target.value }))}
+              placeholder="key_id"
+              className="w-full rounded border px-3 py-2"
+              style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+            />
+          </div>
 
-          <input
-            value={providerForm.secret_key}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, secret_key: e.target.value }))}
-            placeholder={
-              selectedProvider?.has_secret_key
-                ? tr('留空则沿用旧 Secret Key', 'Leave blank to keep existing Secret Key', 'Kosongkan untuk tetap memakai Secret Key lama')
-                : 'secret_key'
-            }
-            className="rounded border px-3 py-2 md:col-span-2"
-            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-          />
+          <div className="md:col-span-2">
+            {fieldLabel(tr('密钥 / Secret Key', 'Secret Key'))}
+            <input
+              value={providerForm.secret_key}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, secret_key: e.target.value }))}
+              placeholder={
+                selectedProvider?.has_secret_key
+                  ? tr('留空则保持现有 Secret Key', 'Leave blank to keep existing Secret Key')
+                  : 'secret_key'
+              }
+              className="w-full rounded border px-3 py-2"
+              style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+            />
+          </div>
 
-          <input
-            value={providerForm.webhook_secret}
-            onChange={(e) => setProviderForm((prev) => ({ ...prev, webhook_secret: e.target.value }))}
-            placeholder={
-              selectedProvider?.has_webhook_secret
-                ? tr('留空则沿用旧 Webhook Secret', 'Leave blank to keep existing Webhook Secret', 'Kosongkan untuk tetap memakai Webhook Secret lama')
-                : 'webhook_secret'
-            }
-            className="rounded border px-3 py-2 md:col-span-2"
-            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-          />
+          <div className="md:col-span-2">
+            {fieldLabel('Webhook Secret')}
+            <input
+              value={providerForm.webhook_secret}
+              onChange={(e) => setProviderForm((prev) => ({ ...prev, webhook_secret: e.target.value }))}
+              placeholder={
+                selectedProvider?.has_webhook_secret
+                  ? tr('留空则保持现有 Webhook Secret', 'Leave blank to keep existing Webhook Secret')
+                  : 'webhook_secret'
+              }
+              className="w-full rounded border px-3 py-2"
+              style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+            />
+          </div>
 
-          <div className="flex items-center gap-4 text-sm" style={{ color: '#AEB4BC' }}>
+          <div className="flex items-end gap-4 pb-2 text-sm" style={{ color: '#AEB4BC' }}>
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={providerForm.enabled}
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, enabled: e.target.checked }))}
               />
-              {tr('启用', 'Enabled', 'Aktif')}
+              {tr('启用', 'Enabled')}
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -334,16 +396,15 @@ export function PaymentConfigPage() {
                 checked={providerForm.is_default}
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, is_default: e.target.checked }))}
               />
-              {tr('设为默认', 'Set default', 'Jadikan default')}
+              {tr('设为默认', 'Set as default')}
             </label>
           </div>
         </div>
 
         <div className="mb-4 text-xs" style={{ color: '#848E9C' }}>
           {tr(
-            '提示：支付参数存数据库。签名密钥加密存储；下单时后端会动态加载当前启用配置。',
-            'Tip: Payment params are stored in DB. Secrets are encrypted; runtime uses active config dynamically.',
-            'Tips: Parameter pembayaran disimpan di DB. Secret dienkripsi; runtime memuat konfigurasi aktif secara dinamis.'
+            '说明：支付参数存数据库。密钥会加密存储；下单时后端动态加载当前启用配置。',
+            'Note: payment params are stored in DB. Secrets are encrypted; runtime loads active config dynamically.'
           )}
         </div>
 
@@ -355,48 +416,35 @@ export function PaymentConfigPage() {
           style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
         >
           <Save className="h-4 w-4" />
-          {savingProvider
-            ? tr('保存中...', 'Saving...', 'Menyimpan...')
-            : tr('保存支付配置', 'Save Payment Config', 'Simpan Konfigurasi Pembayaran')}
+          {savingProvider ? tr('保存中...', 'Saving...') : tr('保存支付配置', 'Save Payment Config')}
         </button>
-
-        <div className="mt-4 space-y-2">
-          {loading ? (
-            <div style={{ color: '#848E9C' }}>{tr('加载中...', 'Loading...', 'Memuat...')}</div>
-          ) : providerConfigs.length === 0 ? (
-            <div style={{ color: '#848E9C' }}>
-              {tr('暂无支付配置，请先创建一条。', 'No payment configs yet. Create your first one.', 'Belum ada konfigurasi pembayaran. Buat konfigurasi pertama.')}
-            </div>
-          ) : (
-            providerConfigs.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded border p-3"
-                style={{ borderColor: '#2B3139' }}
-              >
-                <div className="min-w-0">
-                  <div style={{ color: '#EAECEF' }}>{`${item.display_name || item.environment} (v${item.version})`}</div>
-                  <div className="truncate text-xs" style={{ color: '#848E9C' }}>{`${item.base_url} | key_id: ${item.key_id}`}</div>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span style={{ color: item.enabled ? '#0ECB81' : '#F6465D' }}>
-                    {item.enabled ? tr('启用', 'Enabled', 'Aktif') : tr('禁用', 'Disabled', 'Nonaktif')}
-                  </span>
-                  {item.is_default ? (
-                    <span style={{ color: '#F0B90B' }}>{tr('默认', 'Default', 'Default')}</span>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
       </section>
 
       <section className="rounded-xl border p-4" style={{ background: '#11161E', borderColor: '#2B3139' }}>
         <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold" style={{ color: '#EAECEF' }}>
           <Shield className="h-5 w-5" />
-          {tr('会员套餐配置', 'Membership Plan Config', 'Konfigurasi Paket Membership')}
+          {tr('会员套餐配置', 'Membership Plan Config')}
         </h2>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+          <input
+            type="text"
+            value={newPlanCode}
+            onChange={(e) => setNewPlanCode(e.target.value)}
+            placeholder={tr('新增套餐编码，例如：silver', 'New plan code, e.g. silver')}
+            className="w-full rounded border px-3 py-2"
+            style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+          />
+          <button
+            type="button"
+            onClick={addPlan}
+            className="flex items-center justify-center gap-2 rounded border px-3 py-2 text-sm"
+            style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
+          >
+            <Plus className="h-4 w-4" />
+            {tr('新增套餐', 'Add Plan')}
+          </button>
+        </div>
 
         <div className="space-y-4">
           {sortedPlans.map((plan) => (
@@ -404,7 +452,9 @@ export function PaymentConfigPage() {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <div className="text-base font-semibold" style={{ color: '#EAECEF' }}>{plan.code}</div>
-                  <div className="text-xs" style={{ color: '#848E9C' }}>{tr('价格按分存储，前端展示美元', 'Price stored in cents, displayed as USD', 'Harga disimpan sen, ditampilkan sebagai USD')}</div>
+                  <div className="text-xs" style={{ color: '#848E9C' }}>
+                    {tr('价格按 cents 存储，页面展示为美元。', 'Price stored in cents, displayed as USD.')}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -414,102 +464,137 @@ export function PaymentConfigPage() {
                   style={{ borderColor: '#F0B90B', color: '#F0B90B' }}
                 >
                   <Save className="h-4 w-4" />
-                  {savingPlanCode === plan.code
-                    ? tr('保存中...', 'Saving...', 'Menyimpan...')
-                    : tr('保存套餐', 'Save Plan', 'Simpan Paket')}
+                  {savingPlanCode === plan.code ? tr('保存中...', 'Saving...') : tr('保存套餐', 'Save Plan')}
                 </button>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <input
-                  value={plan.name}
-                  onChange={(e) => updatePlan(plan.code, 'name', e.target.value)}
-                  placeholder={tr('名称', 'Name', 'Nama')}
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-                <input
-                  value={plan.currency}
-                  onChange={(e) => updatePlan(plan.code, 'currency', e.target.value.toUpperCase())}
-                  placeholder="USD"
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-                <select
-                  value={plan.billing_cycle}
-                  onChange={(e) => updatePlan(plan.code, 'billing_cycle', e.target.value)}
-                  className="rounded border bg-transparent px-3 py-2"
-                  style={{ borderColor: '#2B3139', color: '#EAECEF' }}
-                >
-                  <option value="monthly">monthly</option>
-                  <option value="weekly">weekly</option>
-                  <option value="yearly">yearly</option>
-                </select>
-
-                <input
-                  type="number"
-                  step="0.01"
-                  value={centsToDisplay(plan.price_cents)}
-                  onChange={(e) => updatePlan(plan.code, 'price_cents', displayToCents(e.target.value))}
-                  placeholder="99.00"
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-                <input
-                  type="number"
-                  step="1"
-                  value={plan.revenue_share_bps}
-                  onChange={(e) => updatePlan(plan.code, 'revenue_share_bps', Number(e.target.value) || 0)}
-                  placeholder="2000"
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-                <input
-                  type="number"
-                  step="1"
-                  value={plan.seat_limit}
-                  onChange={(e) => updatePlan(plan.code, 'seat_limit', Number(e.target.value) || 0)}
-                  placeholder="0"
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-
-                <input
-                  type="number"
-                  step="1"
-                  value={plan.sort_order}
-                  onChange={(e) => updatePlan(plan.code, 'sort_order', Number(e.target.value) || 0)}
-                  placeholder="10"
-                  className="rounded border px-3 py-2"
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
-                <label className="flex items-center gap-2 text-sm" style={{ color: '#AEB4BC' }}>
+                <div>
+                  {fieldLabel(tr('套餐名称（字符串）', 'Plan Name (text)'))}
                   <input
-                    type="checkbox"
-                    checked={plan.enabled}
-                    onChange={(e) => updatePlan(plan.code, 'enabled', e.target.checked)}
+                    type="text"
+                    value={plan.name}
+                    onChange={(e) => updatePlan(plan.code, 'name', e.target.value)}
+                    placeholder={tr('例如：Bronze', 'e.g. Bronze')}
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
                   />
-                  {tr('启用套餐', 'Plan Enabled', 'Paket Aktif')}
-                </label>
+                </div>
+
+                <div>
+                  {fieldLabel(tr('币种', 'Currency'))}
+                  <input
+                    type="text"
+                    value={plan.currency}
+                    onChange={(e) => updatePlan(plan.code, 'currency', e.target.value.toUpperCase())}
+                    placeholder="USD"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
+
+                <div>
+                  {fieldLabel(tr('计费周期', 'Billing Cycle'))}
+                  <select
+                    value={plan.billing_cycle}
+                    onChange={(e) => updatePlan(plan.code, 'billing_cycle', e.target.value)}
+                    className="w-full rounded border bg-transparent px-3 py-2"
+                    style={{ borderColor: '#2B3139', color: '#EAECEF' }}
+                  >
+                    <option value="monthly">monthly</option>
+                    <option value="weekly">weekly</option>
+                    <option value="yearly">yearly</option>
+                  </select>
+                </div>
+
+                <div>
+                  {fieldLabel(tr('价格（USD）', 'Price (USD)'))}
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={centsToDisplay(plan.price_cents)}
+                    onChange={(e) => updatePlan(plan.code, 'price_cents', displayToCents(e.target.value))}
+                    placeholder="99.00"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
+
+                <div>
+                  {fieldLabel(tr('分成比例（bps）', 'Revenue Share (bps)'))}
+                  <input
+                    type="number"
+                    step="1"
+                    value={plan.revenue_share_bps}
+                    onChange={(e) => updatePlan(plan.code, 'revenue_share_bps', Number(e.target.value) || 0)}
+                    placeholder="2000"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
+
+                <div>
+                  {fieldLabel(tr('名额上限（0=不限）', 'Seat Limit (0 = unlimited)'))}
+                  <input
+                    type="number"
+                    step="1"
+                    value={plan.seat_limit}
+                    onChange={(e) => updatePlan(plan.code, 'seat_limit', Number(e.target.value) || 0)}
+                    placeholder="0"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
+
+                <div>
+                  {fieldLabel(tr('排序权重', 'Sort Order'))}
+                  <input
+                    type="number"
+                    step="1"
+                    value={plan.sort_order}
+                    onChange={(e) => updatePlan(plan.code, 'sort_order', Number(e.target.value) || 0)}
+                    placeholder="10"
+                    className="w-full rounded border px-3 py-2"
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
+
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm" style={{ color: '#AEB4BC' }}>
+                    <input
+                      type="checkbox"
+                      checked={plan.enabled}
+                      onChange={(e) => updatePlan(plan.code, 'enabled', e.target.checked)}
+                    />
+                    {tr('启用套餐', 'Plan Enabled')}
+                  </label>
+                </div>
+
                 <div />
 
-                <textarea
-                  value={plan.description}
-                  onChange={(e) => updatePlan(plan.code, 'description', e.target.value)}
-                  placeholder={tr('描述', 'Description', 'Deskripsi')}
-                  className="rounded border px-3 py-2 md:col-span-3"
-                  rows={2}
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
-                />
+                <div className="md:col-span-3">
+                  {fieldLabel(tr('套餐描述', 'Description'))}
+                  <textarea
+                    value={plan.description}
+                    onChange={(e) => updatePlan(plan.code, 'description', e.target.value)}
+                    placeholder={tr('例如：Signal following and backtest insights', 'e.g. Signal following and backtest insights')}
+                    className="w-full rounded border px-3 py-2"
+                    rows={2}
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
+                  />
+                </div>
 
-                <textarea
-                  value={plan.entitlements}
-                  onChange={(e) => updatePlan(plan.code, 'entitlements', e.target.value)}
-                  placeholder='{"signals":true,"managed_api":false}'
-                  className="rounded border px-3 py-2 md:col-span-3"
-                  rows={4}
-                  style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF', fontFamily: 'monospace' }}
-                />
+                <div className="md:col-span-3">
+                  {fieldLabel(tr('权益 JSON（必须是合法 JSON）', 'Entitlements JSON (must be valid JSON)'))}
+                  <textarea
+                    value={plan.entitlements}
+                    onChange={(e) => updatePlan(plan.code, 'entitlements', e.target.value)}
+                    placeholder='{"signals":true,"managed_api":false}'
+                    className="w-full rounded border px-3 py-2"
+                    rows={4}
+                    style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF', fontFamily: 'monospace' }}
+                  />
+                </div>
               </div>
             </div>
           ))}
@@ -518,4 +603,3 @@ export function PaymentConfigPage() {
     </div>
   )
 }
-
