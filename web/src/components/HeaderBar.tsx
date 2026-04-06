@@ -14,6 +14,7 @@ type Page =
   | 'strategy'
   | 'strategy-permissions'
   | 'strategy-webhooks'
+  | 'payment-config'
   | 'strategy-market'
   | 'data'
   | 'debate'
@@ -117,6 +118,7 @@ export default function HeaderBar({
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                 { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
+                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '\u652f\u4ed8\u914d\u7f6e' : language === 'id' ? 'Konfigurasi Payment' : 'Payment Config', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                 { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -139,7 +141,8 @@ export default function HeaderBar({
                 if (
                   (tab.page === 'strategy' ||
                     tab.page === 'strategy-permissions' ||
-                    tab.page === 'strategy-webhooks') &&
+                    tab.page === 'strategy-webhooks' ||
+                    tab.page === 'payment-config') &&
                   user?.role !== 'ADMIN'
                 ) {
                   return false
@@ -375,6 +378,7 @@ export default function HeaderBar({
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                 { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
+                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '\u652f\u4ed8\u914d\u7f6e' : language === 'id' ? 'Konfigurasi Payment' : 'Payment Config', requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                     { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -397,7 +401,8 @@ export default function HeaderBar({
                     if (
                       (tab.page === 'strategy' ||
                         tab.page === 'strategy-permissions' ||
-                        tab.page === 'strategy-webhooks') &&
+                        tab.page === 'strategy-webhooks' ||
+                        tab.page === 'payment-config') &&
                       user?.role !== 'ADMIN'
                     ) {
                       return false

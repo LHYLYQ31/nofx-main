@@ -313,6 +313,38 @@ export interface StrategyWebhookItem {
   updated_at?: string;
 }
 
+export interface MembershipPlanItem {
+  code: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  currency: string;
+  billing_cycle: string;
+  revenue_share_bps: number;
+  seat_limit: number;
+  enabled: boolean;
+  sort_order: number;
+  entitlements: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PaymentProviderConfigItem {
+  id: string;
+  provider: string;
+  environment: string;
+  display_name: string;
+  base_url: string;
+  key_id: string;
+  enabled: boolean;
+  is_default: boolean;
+  version: number;
+  has_secret_key?: boolean;
+  has_webhook_secret?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface SignalNotifyUserItem {
   email: string;
   enabled: boolean;

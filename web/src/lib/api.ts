@@ -33,6 +33,8 @@ import type {
   DebatePersonalityInfo,
   PositionHistoryResponse,
   StrategyWebhookItem,
+  MembershipPlanItem,
+  PaymentProviderConfigItem,
   SignalNotifyUserItem,
   TraderExecutionModeCapability,
   BacktestShowcaseUserItem,
@@ -841,6 +843,66 @@ export const api = {
   async deleteAdminStrategyWebhook(strategyID: string): Promise<void> {
     const result = await httpClient.delete(`${API_BASE}/admin/strategy-webhooks/${strategyID}`)
     if (!result.success) throw new Error('Failed to delete strategy webhook')
+  },
+
+  async getAdminPaymentProviderConfigs(provider: string = 'infini'): Promise<PaymentProviderConfigItem[]> {
+    const result = await httpClient.get<{ items: PaymentProviderConfigItem[] }>(
+      `${API_BASE}/admin/payment-provider-configs/${encodeURIComponent(provider)}`
+    )
+    if (!result.success) throw new Error('Failed to load payment provider configs')
+    return result.data?.items || []
+  },
+
+  async upsertAdminPaymentProviderConfig(
+    provider: string,
+    payload: {
+      id?: string
+      environment?: string
+      display_name?: string
+      base_url: string
+      key_id: string
+      secret_key?: string
+      webhook_secret?: string
+      enabled: boolean
+      is_default: boolean
+      version?: number
+    }
+  ): Promise<void> {
+    const result = await httpClient.put(
+      `${API_BASE}/admin/payment-provider-configs/${encodeURIComponent(provider)}`,
+      payload
+    )
+    if (!result.success) throw new Error('Failed to save payment provider config')
+  },
+
+  async getAdminMembershipPlans(): Promise<MembershipPlanItem[]> {
+    const result = await httpClient.get<{ items: MembershipPlanItem[] }>(
+      `${API_BASE}/admin/membership-plans`
+    )
+    if (!result.success) throw new Error('Failed to load membership plans')
+    return result.data?.items || []
+  },
+
+  async upsertAdminMembershipPlan(
+    code: string,
+    payload: {
+      name: string
+      description: string
+      price_cents: number
+      currency: string
+      billing_cycle: string
+      revenue_share_bps: number
+      seat_limit: number
+      enabled: boolean
+      sort_order: number
+      entitlements: string
+    }
+  ): Promise<void> {
+    const result = await httpClient.put(
+      `${API_BASE}/admin/membership-plans/${encodeURIComponent(code)}`,
+      payload
+    )
+    if (!result.success) throw new Error('Failed to save membership plan')
   },
 
   async getAdminSignalNotifyUsers(): Promise<SignalNotifyUserItem[]> {
