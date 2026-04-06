@@ -115,6 +115,10 @@ func (s *Server) handleCreateInfiniOrder(c *gin.Context) {
 
 	requestID := uuid.New().String()
 	merchantOrderID := "mem-" + uuid.New().String()
+	currency := strings.ToUpper(strings.TrimSpace(plan.Currency))
+	if currency == "" {
+		currency = "USD"
+	}
 	order := &store.PaymentOrder{
 		UserID:                userID,
 		Provider:              store.PaymentProviderInfini,
@@ -125,7 +129,7 @@ func (s *Server) handleCreateInfiniOrder(c *gin.Context) {
 		BizType:               store.PaymentBizMembership,
 		PlanCode:              plan.Code,
 		AmountCents:           plan.PriceCents,
-		Currency:              plan.Currency,
+		Currency:              currency,
 		Status:                store.PaymentOrderStatusPending,
 		ClientReturnURL:       strings.TrimSpace(req.SuccessURL),
 	}
@@ -134,9 +138,10 @@ func (s *Server) handleCreateInfiniOrder(c *gin.Context) {
 		return
 	}
 
-	client := infini.NewClient(cfg.KeyID, cfg.SecretKey.String(), cfg.BaseURL, nil)
+	client := newInfiniClientFromConfig(cfg)
 	createReq := infini.CreateOrderRequest{
 		Amount:          formatAmountFromCents(plan.PriceCents),
+		Currency:        currency,
 		RequestID:       requestID,
 		ClientReference: merchantOrderID,
 		OrderDesc:       strings.TrimSpace(req.OrderDesc),
@@ -148,6 +153,28 @@ func (s *Server) handleCreateInfiniOrder(c *gin.Context) {
 	resp, raw, err := client.CreateOrder(c.Request.Context(), createReq)
 	if err != nil {
 		_ = s.store.PaymentOrder().UpdateCreateResponse(order.ID, "", "", store.PaymentOrderStatusFailed, raw, nil)
+		var apiErr *infini.APIError
+		if errors.As(err, &apiErr) {
+			msg := strings.TrimSpace(apiErr.Message)
+			if msg == "" {
+				msg = "Infini create order failed"
+			}
+			if strings.TrimSpace(apiErr.Detail) != "" {
+				msg = fmt.Sprintf("%s (%s)", msg, strings.TrimSpace(apiErr.Detail))
+			}
+			if apiErr.Code != 0 {
+				msg = fmt.Sprintf("Infini error code=%d: %s", apiErr.Code, msg)
+			}
+			if isInfiniClientValidationError(apiErr) {
+				msg = msg + " | Please verify Key ID (public key) and Secret Key (private key) are from the same Infini app and environment."
+			}
+			statusCode := http.StatusBadGateway
+			if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+				statusCode = http.StatusBadRequest
+			}
+			SafeError(c, statusCode, msg, err)
+			return
+		}
 		SafeError(c, http.StatusBadGateway, "Failed to create payment order", err)
 		return
 	}
@@ -203,7 +230,7 @@ func (s *Server) handleGetPaymentOrder(c *gin.Context) {
 	if refresh && order.Provider == store.PaymentProviderInfini && order.ProviderOrderID != "" && order.Status != store.PaymentOrderStatusPaid {
 		cfg, cfgErr := s.getPaymentProviderConfigForOrder(order)
 		if cfgErr == nil {
-			client := infini.NewClient(cfg.KeyID, cfg.SecretKey.String(), cfg.BaseURL, nil)
+			client := newInfiniClientFromConfig(cfg)
 			queryResp, raw, queryErr := client.QueryOrder(c.Request.Context(), order.ProviderOrderID)
 			if queryErr == nil {
 				mapped := mapInfiniOrderStatus(queryResp.Status, "")
@@ -482,19 +509,21 @@ func (s *Server) handleAdminUpsertPaymentProviderConfig(c *gin.Context) {
 		Environment: req.Environment,
 		DisplayName: req.DisplayName,
 		BaseURL:     req.BaseURL,
-		KeyID:       req.KeyID,
+		KeyID:       normalizeKeyID(req.KeyID),
 		Enabled:     req.Enabled,
 		IsDefault:   req.IsDefault,
 		Version:     req.Version,
 	}
 
-	if strings.TrimSpace(req.SecretKey) != "" {
-		cfg.SecretKey = crypto.EncryptedString(req.SecretKey)
+	secretKey := normalizeSensitiveInput(req.SecretKey)
+	if secretKey != "" {
+		cfg.SecretKey = crypto.EncryptedString(secretKey)
 	} else if existing != nil {
 		cfg.SecretKey = existing.SecretKey
 	}
-	if strings.TrimSpace(req.WebhookSecret) != "" {
-		cfg.WebhookSecret = crypto.EncryptedString(req.WebhookSecret)
+	webhookSecret := normalizeSensitiveInput(req.WebhookSecret)
+	if webhookSecret != "" {
+		cfg.WebhookSecret = crypto.EncryptedString(webhookSecret)
 	} else if existing != nil {
 		cfg.WebhookSecret = existing.WebhookSecret
 	}
@@ -524,6 +553,47 @@ func (s *Server) handleAdminUpsertPaymentProviderConfig(c *gin.Context) {
 		"is_default":  updated.IsDefault,
 		"version":     updated.Version,
 	})
+}
+
+func normalizeSensitiveInput(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\\n", "\n")
+	return strings.TrimSpace(value)
+}
+
+func normalizeKeyID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\\r\\n", "\n")
+	value = strings.ReplaceAll(value, "\\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.TrimSpace(value)
+}
+
+func newInfiniClientFromConfig(cfg *store.PaymentProviderConfig) *infini.Client {
+	if cfg == nil {
+		return infini.NewClient("", "", "", nil)
+	}
+	keyID := normalizeKeyID(cfg.KeyID)
+	secretKey := normalizeSensitiveInput(cfg.SecretKey.String())
+	baseURL := strings.TrimSpace(cfg.BaseURL)
+	return infini.NewClient(keyID, secretKey, baseURL, nil)
+}
+
+func isInfiniClientValidationError(apiErr *infini.APIError) bool {
+	if apiErr == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(apiErr.Message + " " + apiErr.Detail + " " + apiErr.RawBody))
+	return strings.Contains(text, "can't be validated") || strings.Contains(text, "invalid signature")
 }
 
 func (s *Server) getActivePaymentProviderConfig(provider string) (*store.PaymentProviderConfig, error) {

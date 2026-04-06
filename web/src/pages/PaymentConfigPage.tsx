@@ -136,12 +136,12 @@ export function PaymentConfigPage() {
     const baseURL = providerForm.base_url.trim()
     const keyID = providerForm.key_id.trim()
     if (!baseURL || !keyID) {
-      notify.error(tr('Base URL 和 Key ID 必填', 'Base URL and Key ID are required'))
+      notify.error(tr('Base URL 和商户公钥（Key ID）必填', 'Base URL and merchant public key (Key ID) are required'))
       return
     }
 
     if (!providerForm.id && !providerForm.secret_key.trim()) {
-      notify.error(tr('首次创建必须填写 Secret Key', 'Secret Key is required for new config'))
+      notify.error(tr('首次创建必须填写商户私钥（Secret Key）', 'Merchant private key (Secret Key) is required for new config'))
       return
     }
 
@@ -345,22 +345,23 @@ export function PaymentConfigPage() {
             <input
               value={providerForm.key_id}
               onChange={(e) => setProviderForm((prev) => ({ ...prev, key_id: e.target.value }))}
-              placeholder="key_id"
+              placeholder={tr('填写开发者页面的商户公钥（即 keyId）', 'Paste merchant public key from Developer page (this is keyId)')}
               className="w-full rounded border px-3 py-2"
               style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
             />
           </div>
 
           <div className="md:col-span-2">
-            {fieldLabel(tr('密钥 / Secret Key', 'Secret Key'))}
-            <input
+            {fieldLabel(tr('私钥 / Secret Key', 'Private Key / Secret Key'))}
+            <textarea
               value={providerForm.secret_key}
               onChange={(e) => setProviderForm((prev) => ({ ...prev, secret_key: e.target.value }))}
               placeholder={
                 selectedProvider?.has_secret_key
-                  ? tr('留空则保持现有 Secret Key', 'Leave blank to keep existing Secret Key')
-                  : 'secret_key'
+                  ? tr('留空则保持现有私钥（Secret Key）', 'Leave blank to keep existing private key (Secret Key)')
+                  : tr('填写开发者页面的商户私钥', 'Paste merchant private key from Developer page')
               }
+              rows={3}
               className="w-full rounded border px-3 py-2"
               style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
             />
@@ -368,14 +369,15 @@ export function PaymentConfigPage() {
 
           <div className="md:col-span-2">
             {fieldLabel('Webhook Secret')}
-            <input
+            <textarea
               value={providerForm.webhook_secret}
               onChange={(e) => setProviderForm((prev) => ({ ...prev, webhook_secret: e.target.value }))}
               placeholder={
                 selectedProvider?.has_webhook_secret
                   ? tr('留空则保持现有 Webhook Secret', 'Leave blank to keep existing Webhook Secret')
-                  : 'webhook_secret'
+                  : tr('填写开发者页面的 Webhook Secret', 'Paste Webhook Secret from Developer page')
               }
+              rows={2}
               className="w-full rounded border px-3 py-2"
               style={{ borderColor: '#2B3139', background: 'transparent', color: '#EAECEF' }}
             />

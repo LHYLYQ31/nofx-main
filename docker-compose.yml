@@ -12,6 +12,7 @@ services:
       - "${NOFX_PPROF_PORT:-6060}:6060"
     volumes:
       - ./data:/app/data
+      - ${NOFX_DB_BACKUP_HOST_DIR:-./backups}:/app/backups
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
@@ -28,6 +29,11 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-}
       DB_NAME: ${DB_NAME:-}
       DB_SSLMODE: ${DB_SSLMODE:-disable}
+      DB_BACKUP_ENABLED: ${DB_BACKUP_ENABLED:-true}
+      DB_BACKUP_INTERVAL_MINUTES: ${DB_BACKUP_INTERVAL_MINUTES:-60}
+      DB_BACKUP_DIR: ${DB_BACKUP_DIR:-/app/backups}
+      DB_BACKUP_RETENTION_DAYS: ${DB_BACKUP_RETENTION_DAYS:-7}
+      DB_BACKUP_ON_STARTUP: ${DB_BACKUP_ON_STARTUP:-true}
       NOFX_SUPER_ADMIN_EMAIL: ${NOFX_SUPER_ADMIN_EMAIL:-admin@example.com}
       NOFX_SUPER_ADMIN_PASSWORD: ${NOFX_SUPER_ADMIN_PASSWORD:-Admin@123456}
     networks:

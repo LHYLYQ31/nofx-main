@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -96,6 +97,16 @@ func main() {
 
 	// Initialize installation ID for experience improvement (anonymous statistics)
 	initInstallationID(st)
+
+	// Start scheduled database backup task (SQLite)
+	stopDatabaseBackup := store.StartDatabaseBackupScheduler(st, cfg.DBPath, store.DatabaseBackupConfig{
+		Enabled:       cfg.DBBackupEnabled,
+		Interval:      time.Duration(cfg.DBBackupIntervalMinutes) * time.Minute,
+		BackupDir:     cfg.DBBackupDir,
+		RetentionDays: cfg.DBBackupRetentionDays,
+		RunOnStartup:  cfg.DBBackupOnStartup,
+	})
+	defer stopDatabaseBackup()
 
 	// Set JWT secret
 	auth.SetJWTSecret(cfg.JWTSecret)

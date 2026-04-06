@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown } from 'lucide-react'
+import useSWR from 'swr'
 import { t, type Language } from '../i18n/translations'
 import { useSystemConfig } from '../hooks/useSystemConfig'
 import { OFFICIAL_LINKS, BRANDING } from '../constants/branding'
+import { api } from '../lib/api'
 
 type Page =
   | 'competition'
@@ -35,6 +37,26 @@ interface HeaderBarProps {
   onLoginRequired?: (featureName: string) => void
 }
 
+function resolveMembershipDisplay(membership: any, language: Language): { badge: string; detail: string } {
+  const freeText = language === 'zh' ? '\u514d\u8d39' : language === 'id' ? 'Gratis' : 'Free'
+  const isActive = !!membership?.is_active
+  const planName = String(membership?.plan?.name || '').trim()
+  const tier = String(membership?.tier || '').trim().toLowerCase()
+
+  let badge = freeText
+  if (isActive) {
+    if (planName) {
+      badge = planName
+    } else if (tier && tier !== 'free') {
+      badge = tier.toUpperCase()
+    }
+  }
+
+  if (language === 'zh') return { badge, detail: `\u4f1a\u5458 ${badge}` }
+  if (language === 'id') return { badge, detail: `Member ${badge}` }
+  return { badge, detail: `Tier ${badge}` }
+}
+
 export default function HeaderBar({
   isLoggedIn = false,
   isHomePage = false,
@@ -54,6 +76,14 @@ export default function HeaderBar({
   const userDropdownRef = useRef<HTMLDivElement>(null)
   const { config: systemConfig } = useSystemConfig()
   const registrationEnabled = systemConfig?.registration_enabled !== false
+  const { data: membership } = useSWR(
+    isLoggedIn && user ? `current-membership-${user.email}` : null,
+    api.getCurrentMembership,
+    { refreshInterval: 15000 }
+  )
+  const membershipDisplay = resolveMembershipDisplay(membership, language)
+  const membershipBadgeText = membershipDisplay.badge
+  const membershipTierLabel = membershipDisplay.detail
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -118,7 +148,7 @@ export default function HeaderBar({
                 { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                 { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
-                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '支付配置' : 'Payment Config', requiresAuth: true },
+                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '\u652f\u4ed8\u914d\u7f6e' : 'Payment Config', requiresAuth: true },
                 { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                 { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -212,25 +242,36 @@ export default function HeaderBar({
                 <div className="relative" ref={userDropdownRef}>
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-2 rounded transition-colors bg-nofx-bg-lighter border border-nofx-gold/20 hover:bg-white/5"
+                    className="flex max-w-[520px] items-center gap-2 px-3 py-2 rounded transition-colors bg-nofx-bg-lighter border border-nofx-gold/20 hover:bg-white/5"
                   >
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold bg-nofx-gold text-black">
                       {user.email[0].toUpperCase()}
                     </div>
-                    <span className="text-sm text-nofx-text-muted">
-                      {user.email}
-                    </span>
+                    <div className="flex min-w-0 flex-col items-start">
+                      <span className="max-w-[220px] truncate text-sm text-nofx-text-muted">
+                        {user.email}
+                      </span>
+                      <span
+                        title={membershipTierLabel}
+                        className="mt-0.5 inline-block max-w-[220px] truncate rounded border border-nofx-gold/40 bg-nofx-gold/10 px-1.5 py-0.5 text-[10px] font-semibold text-nofx-gold"
+                      >
+                        {membershipBadgeText}
+                      </span>
+                    </div>
                     <ChevronDown className="w-4 h-4 text-nofx-text-muted" />
                   </button>
 
                   {userDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-lg overflow-hidden z-50 bg-nofx-bg-lighter border border-nofx-gold/20">
+                    <div className="absolute right-0 top-full mt-2 w-64 rounded-lg shadow-lg overflow-hidden z-50 bg-nofx-bg-lighter border border-nofx-gold/20">
                       <div className="px-3 py-2 border-b border-nofx-gold/20">
                         <div className="text-xs text-nofx-text-muted">
                           {t('loggedInAs', language)}
                         </div>
                         <div className="text-sm font-medium text-nofx-text-muted">
                           {user.email}
+                        </div>
+                        <div className="mt-1 text-xs text-nofx-gold">
+                          {membershipTierLabel}
                         </div>
                       </div>
                       <button
@@ -240,7 +281,7 @@ export default function HeaderBar({
                         className="w-full px-3 py-2 text-sm font-semibold transition-colors hover:opacity-80 text-center bg-transparent text-nofx-text-muted border-b border-nofx-gold/20"
                       >
                         {language === 'zh'
-                          ? '修改密码'
+                          ? '\u4fee\u6539\u5bc6\u7801'
                           : language === 'id'
                             ? 'Ubah Password'
                             : 'Change Password'}
@@ -378,7 +419,7 @@ export default function HeaderBar({
                     { page: 'strategy', path: '/strategy', label: t('strategyNav', language), requiresAuth: true },
                 { page: 'strategy-permissions', path: '/strategy-permissions', label: language === 'zh' ? '\u7b56\u7565\u6388\u6743' : language === 'id' ? 'Izin Strategi' : 'Strategy Access', requiresAuth: true },
                 { page: 'strategy-webhooks', path: '/strategy-webhooks', label: language === 'zh' ? 'Webhook \u914d\u7f6e' : language === 'id' ? 'Webhook' : 'Webhook Config', requiresAuth: true },
-                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '支付配置' : 'Payment Config', requiresAuth: true },
+                { page: 'payment-config', path: '/payment-config', label: language === 'zh' ? '\u652f\u4ed8\u914d\u7f6e' : 'Payment Config', requiresAuth: true },
                     { page: 'competition', path: '/competition', label: t('realtimeNav', language), requiresAuth: true },
                     { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
@@ -508,6 +549,9 @@ export default function HeaderBar({
                   {/* Auth Actions */}
                   {isLoggedIn && user ? (
                     <div className="space-y-2">
+                      <div className="rounded-lg border border-nofx-gold/30 bg-nofx-gold/10 px-3 py-2 text-center text-xs font-bold text-nofx-gold break-words">
+                        {membershipTierLabel}
+                      </div>
                       <button
                         onClick={() => {
                           window.location.href = '/change-password'
@@ -516,7 +560,7 @@ export default function HeaderBar({
                         className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-lg font-bold text-sm py-2 hover:border-nofx-gold transition-colors"
                       >
                         {language === 'zh'
-                          ? '修改密码'
+                          ? '\u4fee\u6539\u5bc6\u7801'
                           : language === 'id'
                             ? 'Ubah Password'
                             : 'Change Password'}

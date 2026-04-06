@@ -132,6 +132,10 @@ func corsMiddleware() gin.HandlerFunc {
 
 // setupRoutes Setup routes
 func (s *Server) setupRoutes() {
+	// Compatibility webhook route: some reverse proxies may strip `/api` prefix.
+	// Keep both paths available to avoid callback 404 in tunnel environments.
+	s.router.POST("/payments/infini/webhook", s.handleInfiniWebhook)
+
 	// API route group
 	api := s.router.Group("/api")
 	{
@@ -167,6 +171,7 @@ func (s *Server) setupRoutes() {
 		// Public strategy market (no authentication required)
 		api.GET("/strategies/public", s.handlePublicStrategies)
 		api.GET("/backtest/showcase/wall", s.handlePublicBacktestShowcaseWall)
+		api.GET("/memberships/plans", s.handleMembershipPlans)
 
 		// Authentication related routes (no authentication required)
 		api.POST("/register", s.handleRegister)
@@ -255,7 +260,6 @@ func (s *Server) setupRoutes() {
 			s.registerBacktestRoutes(backtest)
 
 			// Membership and payment
-			protected.GET("/memberships/plans", s.handleMembershipPlans)
 			protected.GET("/memberships/current", s.handleCurrentMembership)
 			protected.POST("/payments/infini/orders", s.handleCreateInfiniOrder)
 			protected.GET("/payments/orders", s.handleListPaymentOrders)

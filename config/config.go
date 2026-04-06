@@ -29,6 +29,12 @@ type Config struct {
 	DBPassword string // PostgreSQL password
 	DBName     string // PostgreSQL database name
 	DBSSLMode  string // PostgreSQL SSL mode
+	// Database backup configuration
+	DBBackupEnabled         bool
+	DBBackupIntervalMinutes int
+	DBBackupDir             string
+	DBBackupRetentionDays   int
+	DBBackupOnStartup       bool
 
 	// Security configuration
 	// TransportEncryption enables browser-side encryption for API keys
@@ -79,7 +85,13 @@ func Init() {
 		DBUser:    "postgres",
 		DBName:    "nofx",
 		DBSSLMode: "disable",
-		SMTPPort:  587,
+		// Backup defaults (effective for SQLite; PostgreSQL logs a warning and skips)
+		DBBackupEnabled:         true,
+		DBBackupIntervalMinutes: 60,
+		DBBackupDir:             "data/backups",
+		DBBackupRetentionDays:   7,
+		DBBackupOnStartup:       true,
+		SMTPPort:                587,
 	}
 
 	// Load from environment variables
@@ -166,6 +178,25 @@ func Init() {
 	}
 	if v := os.Getenv("DB_SSLMODE"); v != "" {
 		cfg.DBSSLMode = v
+	}
+	if v := os.Getenv("DB_BACKUP_ENABLED"); v != "" {
+		cfg.DBBackupEnabled = strings.ToLower(v) != "false"
+	}
+	if v := os.Getenv("DB_BACKUP_INTERVAL_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			cfg.DBBackupIntervalMinutes = mins
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("DB_BACKUP_DIR")); v != "" {
+		cfg.DBBackupDir = v
+	}
+	if v := os.Getenv("DB_BACKUP_RETENTION_DAYS"); v != "" {
+		if days, err := strconv.Atoi(v); err == nil && days >= 0 {
+			cfg.DBBackupRetentionDays = days
+		}
+	}
+	if v := os.Getenv("DB_BACKUP_ON_STARTUP"); v != "" {
+		cfg.DBBackupOnStartup = strings.ToLower(v) != "false"
 	}
 
 	global = cfg

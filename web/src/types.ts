@@ -329,6 +329,26 @@ export interface MembershipPlanItem {
   updated_at?: string;
 }
 
+export interface UserMembershipItem {
+  id: string;
+  user_id: string;
+  plan_code: string;
+  status: string;
+  start_at: string;
+  end_at: string;
+  auto_renew: boolean;
+  last_payment_order_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CurrentMembershipPayload {
+  membership: UserMembershipItem | null;
+  is_active: boolean;
+  tier: string;
+  plan?: MembershipPlanItem | null;
+}
+
 export interface PaymentProviderConfigItem {
   id: string;
   provider: string;

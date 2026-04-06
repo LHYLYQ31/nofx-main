@@ -34,6 +34,7 @@ import type {
   PositionHistoryResponse,
   StrategyWebhookItem,
   MembershipPlanItem,
+  CurrentMembershipPayload,
   PaymentProviderConfigItem,
   SignalNotifyUserItem,
   TraderExecutionModeCapability,
@@ -796,6 +797,38 @@ export const api = {
     const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
     if (!result.success) throw new Error('复制策略失败')
     return result.data!
+  },
+
+  async getMembershipPlans(): Promise<MembershipPlanItem[]> {
+    const result = await httpClient.get<{ items: MembershipPlanItem[] }>(
+      `${API_BASE}/memberships/plans`
+    )
+    if (!result.success) throw new Error('Failed to load membership plans')
+    return result.data?.items || []
+  },
+
+  async getCurrentMembership(): Promise<CurrentMembershipPayload> {
+    const result = await httpClient.get<CurrentMembershipPayload>(
+      `${API_BASE}/memberships/current`
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to load current membership')
+    return result.data || { membership: null, is_active: false, tier: 'free', plan: null }
+  },
+
+  async createInfiniMembershipOrder(payload: {
+    plan_code: string
+    success_url?: string
+    failure_url?: string
+    order_desc?: string
+    expires_in_sec?: number
+  }): Promise<{ checkout_url: string; order?: any; provider?: string }> {
+    const result = await httpClient.post<{
+      checkout_url: string
+      order?: any
+      provider?: string
+    }>(`${API_BASE}/payments/infini/orders`, payload)
+    if (!result.success) throw new Error(result.message || 'Failed to create payment order')
+    return result.data || { checkout_url: '' }
   },
 
   // Admin strategy permission APIs

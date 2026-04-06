@@ -139,50 +139,59 @@ func (c *Client) requestJSON(ctx context.Context, method, path string, payload i
 		return "", 0, err
 	}
 
-	headers, err := c.signHeaders(method, path, bodyBytes)
-	if err != nil {
-		return "", 0, err
-	}
-
-	var body io.Reader
-	if len(bodyBytes) > 0 {
-		body = bytes.NewReader(bodyBytes)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
-	if err != nil {
-		return "", 0, err
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	if len(bodyBytes) > 0 {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return "", 0, err
-	}
-	defer resp.Body.Close()
-
-	rawResp, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", resp.StatusCode, err
-	}
-	raw := strings.TrimSpace(string(rawResp))
-
-	if resp.StatusCode >= 400 {
-		apiErr := parseAPIError(resp.StatusCode, rawResp)
-		return raw, resp.StatusCode, apiErr
-	}
-
-	if out != nil && len(rawResp) > 0 {
-		if err := decodeResponse(rawResp, out); err != nil {
-			return raw, resp.StatusCode, err
+	tryLegacyDatePrefix := false
+	for attempt := 0; attempt < 2; attempt++ {
+		headers, signErr := c.signHeaders(method, path, bodyBytes, tryLegacyDatePrefix)
+		if signErr != nil {
+			return "", 0, signErr
 		}
+
+		var body io.Reader
+		if len(bodyBytes) > 0 {
+			body = bytes.NewReader(bodyBytes)
+		}
+
+		req, reqErr := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
+		if reqErr != nil {
+			return "", 0, reqErr
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		if len(bodyBytes) > 0 {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, doErr := c.Client.Do(req)
+		if doErr != nil {
+			return "", 0, doErr
+		}
+
+		rawResp, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return "", resp.StatusCode, readErr
+		}
+		raw := strings.TrimSpace(string(rawResp))
+
+		if resp.StatusCode >= 400 {
+			apiErr := parseAPIError(resp.StatusCode, rawResp)
+			if !tryLegacyDatePrefix && shouldRetryWithLegacyDatePrefix(resp.StatusCode, raw, apiErr) {
+				tryLegacyDatePrefix = true
+				continue
+			}
+			return raw, resp.StatusCode, apiErr
+		}
+
+		if out != nil && len(rawResp) > 0 {
+			if decodeErr := decodeResponse(rawResp, out); decodeErr != nil {
+				return raw, resp.StatusCode, decodeErr
+			}
+		}
+		return raw, resp.StatusCode, nil
 	}
-	return raw, resp.StatusCode, nil
+
+	return "", 0, fmt.Errorf("infini request retry flow ended unexpectedly")
 }
 
 func parseAPIError(statusCode int, raw []byte) error {
@@ -221,17 +230,22 @@ func marshalPayload(payload interface{}) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-func (c *Client) signHeaders(method, path string, body []byte) (map[string]string, error) {
+func (c *Client) signHeaders(method, path string, body []byte, legacyDatePrefix bool) (map[string]string, error) {
 	if strings.TrimSpace(c.KeyID) == "" || strings.TrimSpace(c.SecretKey) == "" {
 		return nil, fmt.Errorf("infini key_id/secret_key are required")
 	}
 
 	gmtTime := time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+	datePrefix := "date:"
+	if legacyDatePrefix {
+		datePrefix = " date:"
+	}
 	signingString := fmt.Sprintf(
-		"%s\n%s %s\n date: %s\n",
+		"%s\n%s %s\n%s %s\n",
 		c.KeyID,
 		strings.ToUpper(strings.TrimSpace(method)),
 		strings.TrimSpace(path),
+		datePrefix,
 		gmtTime,
 	)
 
@@ -240,11 +254,7 @@ func (c *Client) signHeaders(method, path string, body []byte) (map[string]strin
 		return nil, err
 	}
 	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	authHeader := fmt.Sprintf(
-		`Signature keyId="%s",algorithm="hmac-sha256",headers="@request-target date",signature="%s"`,
-		c.KeyID,
-		signature,
-	)
+	authHeader := fmt.Sprintf(`Signature keyId="%s",algorithm="hmac-sha256",headers="@request-target date",signature="%s"`, c.KeyID, signature)
 
 	headers := map[string]string{
 		"Date":          gmtTime,
@@ -255,6 +265,26 @@ func (c *Client) signHeaders(method, path string, body []byte) (map[string]strin
 		headers["Digest"] = "SHA-256=" + base64.StdEncoding.EncodeToString(digest[:])
 	}
 	return headers, nil
+}
+
+func shouldRetryWithLegacyDatePrefix(statusCode int, raw string, err error) bool {
+	if statusCode != http.StatusUnauthorized {
+		return false
+	}
+	lowerRaw := strings.ToLower(strings.TrimSpace(raw))
+	if strings.Contains(lowerRaw, "can't be validated") || strings.Contains(lowerRaw, "invalid signature") {
+		return true
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok || apiErr == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(apiErr.Message))
+	detail := strings.ToLower(strings.TrimSpace(apiErr.Detail))
+	return strings.Contains(msg, "can't be validated") ||
+		strings.Contains(msg, "invalid signature") ||
+		strings.Contains(detail, "can't be validated") ||
+		strings.Contains(detail, "invalid signature")
 }
 
 func VerifyWebhookSignature(webhookSecret, timestamp, eventID, payload, signature string) bool {
