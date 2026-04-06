@@ -29,6 +29,12 @@ type Store struct {
 	equity                 *EquityStore
 	order                  *OrderStore
 	grid                   *GridStore
+	membershipPlan         *MembershipPlanStore
+	userMembership         *UserMembershipStore
+	paymentProviderConfig  *PaymentProviderConfigStore
+	paymentOrder           *PaymentOrderStore
+	paymentWebhookEvent    *PaymentWebhookEventStore
+	profitSettlement       *ProfitSettlementStore
 	userStrategyPermission *UserStrategyPermissionStore
 	strategyWebhook        *StrategyWebhookStore
 	signalNotifyUser       *SignalNotifyUserStore
@@ -165,6 +171,24 @@ func (s *Store) initTables() error {
 	if err := s.Grid().InitTables(); err != nil {
 		return fmt.Errorf("failed to initialize grid tables: %w", err)
 	}
+	if err := s.MembershipPlan().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize membership plan tables: %w", err)
+	}
+	if err := s.UserMembership().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize user membership tables: %w", err)
+	}
+	if err := s.PaymentProviderConfig().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize payment provider config tables: %w", err)
+	}
+	if err := s.PaymentOrder().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize payment order tables: %w", err)
+	}
+	if err := s.PaymentWebhookEvent().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize payment webhook event tables: %w", err)
+	}
+	if err := s.ProfitSettlement().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize profit settlement tables: %w", err)
+	}
 	if err := s.UserStrategyPermission().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize user strategy permission tables: %w", err)
 	}
@@ -192,6 +216,9 @@ func (s *Store) initDefaultData() error {
 		return err
 	}
 	if err := s.Strategy().initDefaultData(); err != nil {
+		return err
+	}
+	if err := s.MembershipPlan().initDefaultData(); err != nil {
 		return err
 	}
 	// Migrate old decision_account_snapshots data to new trader_equity_snapshots table
@@ -311,6 +338,66 @@ func (s *Store) Grid() *GridStore {
 		s.grid = NewGridStore(s.gdb)
 	}
 	return s.grid
+}
+
+// MembershipPlan gets membership plan storage
+func (s *Store) MembershipPlan() *MembershipPlanStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.membershipPlan == nil {
+		s.membershipPlan = NewMembershipPlanStore(s.gdb)
+	}
+	return s.membershipPlan
+}
+
+// UserMembership gets user membership storage
+func (s *Store) UserMembership() *UserMembershipStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.userMembership == nil {
+		s.userMembership = NewUserMembershipStore(s.gdb)
+	}
+	return s.userMembership
+}
+
+// PaymentProviderConfig gets payment provider config storage
+func (s *Store) PaymentProviderConfig() *PaymentProviderConfigStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paymentProviderConfig == nil {
+		s.paymentProviderConfig = NewPaymentProviderConfigStore(s.gdb)
+	}
+	return s.paymentProviderConfig
+}
+
+// PaymentOrder gets payment order storage
+func (s *Store) PaymentOrder() *PaymentOrderStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paymentOrder == nil {
+		s.paymentOrder = NewPaymentOrderStore(s.gdb)
+	}
+	return s.paymentOrder
+}
+
+// PaymentWebhookEvent gets payment webhook event storage
+func (s *Store) PaymentWebhookEvent() *PaymentWebhookEventStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paymentWebhookEvent == nil {
+		s.paymentWebhookEvent = NewPaymentWebhookEventStore(s.gdb)
+	}
+	return s.paymentWebhookEvent
+}
+
+// ProfitSettlement gets profit settlement storage
+func (s *Store) ProfitSettlement() *ProfitSettlementStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.profitSettlement == nil {
+		s.profitSettlement = NewProfitSettlementStore(s.gdb)
+	}
+	return s.profitSettlement
 }
 
 // UserStrategyPermission gets user strategy permission storage

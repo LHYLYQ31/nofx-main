@@ -54,6 +54,8 @@ type Server struct {
 	port            int
 	resetCodeMu     sync.Mutex
 	resetCodes      map[string]resetCodeEntry
+	paymentCfgMu    sync.RWMutex
+	paymentCfgCache map[string]paymentConfigCacheEntry
 }
 
 type resetCodeEntry struct {
@@ -92,6 +94,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		debateHandler:   debateHandler,
 		port:            port,
 		resetCodes:      make(map[string]resetCodeEntry),
+		paymentCfgCache: make(map[string]paymentConfigCacheEntry),
 	}
 
 	if backtestManager != nil {
@@ -170,6 +173,7 @@ func (s *Server) setupRoutes() {
 		api.POST("/login", s.handleLogin)
 		api.POST("/forgot-password/send-code", s.handleSendResetPasswordCode)
 		api.POST("/reset-password", s.handleResetPassword)
+		api.POST("/payments/infini/webhook", s.handleInfiniWebhook)
 
 		// Routes requiring authentication
 		protected := api.Group("/", s.authMiddleware())
@@ -250,6 +254,13 @@ func (s *Server) setupRoutes() {
 			backtest := protected.Group("/backtest")
 			s.registerBacktestRoutes(backtest)
 
+			// Membership and payment
+			protected.GET("/memberships/plans", s.handleMembershipPlans)
+			protected.GET("/memberships/current", s.handleCurrentMembership)
+			protected.POST("/payments/infini/orders", s.handleCreateInfiniOrder)
+			protected.GET("/payments/orders", s.handleListPaymentOrders)
+			protected.GET("/payments/orders/:id", s.handleGetPaymentOrder)
+
 			admin := protected.Group("/admin", s.requireAdmin())
 			{
 				admin.GET("/users", s.handleAdminListUsers)
@@ -267,6 +278,10 @@ func (s *Server) setupRoutes() {
 				admin.DELETE("/backtest-showcase-users/:email", s.handleAdminDeleteBacktestShowcaseUser)
 				admin.GET("/showcase-strategies", s.handleAdminListShowcaseStrategies)
 				admin.PUT("/showcase-strategies", s.handleAdminSetShowcaseStrategies)
+				admin.GET("/membership-plans", s.handleAdminListMembershipPlans)
+				admin.PUT("/membership-plans/:code", s.handleAdminUpsertMembershipPlan)
+				admin.GET("/payment-provider-configs/:provider", s.handleAdminListPaymentProviderConfigs)
+				admin.PUT("/payment-provider-configs/:provider", s.handleAdminUpsertPaymentProviderConfig)
 			}
 		}
 	}
