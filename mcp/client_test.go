@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -143,6 +145,93 @@ func TestClient_CallWithMessages_HTTPError(t *testing.T) {
 
 	if err == nil {
 		t.Error("should error on HTTP error")
+	}
+}
+
+func TestClient_CallWithMessages_HTTP401RequestIDFromHeader(t *testing.T) {
+	mockHTTP := NewMockHTTPClient()
+	mockHTTP.ResponseFunc = func(req *http.Request) (*http.Response, error) {
+		resp := &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Body:       io.NopCloser(strings.NewReader(`{"error":"invalid_api_key"}`)),
+			Header:     make(http.Header),
+		}
+		resp.Header.Set("x-request-id", "req_from_header_401")
+		return resp, nil
+	}
+	mockLogger := NewMockLogger()
+
+	client := NewClient(
+		WithHTTPClient(mockHTTP.ToHTTPClient()),
+		WithLogger(mockLogger),
+		WithAPIKey("test-key"),
+		WithBaseURL("https://api.test.com"),
+		WithMaxRetries(1),
+	)
+
+	_, err := client.CallWithMessages("system", "user")
+	if err == nil {
+		t.Fatal("should error on 401")
+	}
+	if !contains(err.Error(), "request_id=req_from_header_401") {
+		t.Fatalf("error should contain request_id, got: %v", err)
+	}
+
+	infoLogs := mockLogger.GetLogsByLevel("INFO")
+	foundUpstreamLog := false
+	for _, log := range infoLogs {
+		if contains(log.Message, "upstream request id") && contains(log.Message, "req_from_header_401") {
+			foundUpstreamLog = true
+			break
+		}
+	}
+	if !foundUpstreamLog {
+		t.Fatal("should log upstream request id from header")
+	}
+}
+
+func TestClient_CallWithMessages_HTTP401RequestIDFromBody(t *testing.T) {
+	mockHTTP := NewMockHTTPClient()
+	mockHTTP.SetErrorResponse(http.StatusUnauthorized, `{"error":{"message":"invalid key","request_id":"req_from_body_401"}}`)
+	mockLogger := NewMockLogger()
+
+	client := NewClient(
+		WithHTTPClient(mockHTTP.ToHTTPClient()),
+		WithLogger(mockLogger),
+		WithAPIKey("test-key"),
+		WithBaseURL("https://api.test.com"),
+		WithMaxRetries(1),
+	)
+
+	_, err := client.CallWithMessages("system", "user")
+	if err == nil {
+		t.Fatal("should error on 401")
+	}
+	if !contains(err.Error(), "request_id=req_from_body_401") {
+		t.Fatalf("error should contain request_id parsed from body, got: %v", err)
+	}
+
+	infoLogs := mockLogger.GetLogsByLevel("INFO")
+	foundUpstreamLog := false
+	for _, log := range infoLogs {
+		if contains(log.Message, "upstream request id") && contains(log.Message, "req_from_body_401") {
+			foundUpstreamLog = true
+			break
+		}
+	}
+	if !foundUpstreamLog {
+		t.Fatal("should log upstream request id from response body")
+	}
+}
+
+func TestExtractRequestIDFromBody(t *testing.T) {
+	body := []byte(`{"error":{"meta":{"request_id":"req_nested_body"}}}`)
+	key, value := extractRequestIDFromBody(body)
+	if key != "request_id" {
+		t.Fatalf("expected key request_id, got %s", key)
+	}
+	if value != "req_nested_body" {
+		t.Fatalf("expected request id req_nested_body, got %s", value)
 	}
 }
 

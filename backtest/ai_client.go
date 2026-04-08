@@ -92,52 +92,5 @@ func configureMCPClient(cfg BacktestConfig, base mcp.AIClient) (mcp.AIClient, er
 
 // cloneBaseClient copies the base client to avoid shared mutable state.
 func cloneBaseClient(base mcp.AIClient) *mcp.Client {
-	// Prefer to reuse the passed-in base client (deep copy)
-	switch c := base.(type) {
-	case *mcp.Client:
-		cp := *c
-		return &cp
-	case *mcp.DeepSeekClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.QwenClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.ClaudeClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.KimiClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.GeminiClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.GrokClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.OpenAIClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	case *mcp.MiniMaxClient:
-		if c != nil && c.Client != nil {
-			cp := *c.Client
-			return &cp
-		}
-	}
-	// Fall back to a new default client
-	return mcp.NewClient().(*mcp.Client)
+	return mcp.CloneAsBaseClient(base)
 }

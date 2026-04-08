@@ -26,8 +26,11 @@ var (
 )
 
 const (
-	metricsWriteInterval = 5 * time.Second
-	aiDecisionMaxRetries = 3
+	metricsWriteInterval            = 5 * time.Second
+	aiDecisionMaxRetries            = 3
+	backtestRecentTradeDetailsLimit = 20
+	backtestRecentStatsWindow30     = 30
+	backtestRecentStatsWindow50     = 50
 	// Guardrails for dynamic grid recentering (adjust_grid).
 	gridRecenterCooldownCycles = 3
 	gridRecenterMinShiftRatio  = 0.15
@@ -114,6 +117,8 @@ type Runner struct {
 	gridRanges            map[string]gridStaticRange
 	gridLastRecenterCycle map[string]int
 	gridRegimes           map[string]gridRegimeState
+
+	closedTradeHistory []TradeEvent
 }
 
 // NewRunner constructs a backtest runner.
@@ -122,12 +127,17 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 		return nil, err
 	}
 
+	// Create strategy engine from backtest config for unified prompt generation.
+	// DataFeed also uses this config to apply fixed context windows per timeframe.
+	strategyConfig := cfg.ToStrategyConfig()
+	strategyEngine := kernel.NewStrategyEngine(strategyConfig)
+
 	client, err := configureMCPClient(cfg, mcpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	feed, err := NewDataFeed(cfg)
+	feed, err := NewDataFeed(cfg, strategyConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -168,9 +178,11 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 		aiCache = cache
 	}
 
-	// Create strategy engine from backtest config for unified prompt generation
-	strategyConfig := cfg.ToStrategyConfig()
-	strategyEngine := kernel.NewStrategyEngine(strategyConfig)
+	closedTrades, err := loadClosedTradeHistory(cfg.RunID)
+	if err != nil {
+		logger.Warnf("backtest %s failed to load trade history for AI context: %v", cfg.RunID, err)
+		closedTrades = []TradeEvent{}
+	}
 
 	r := &Runner{
 		cfg:                   cfg,
@@ -194,6 +206,7 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 		gridRanges:            make(map[string]gridStaticRange),
 		gridLastRecenterCycle: make(map[string]int),
 		gridRegimes:           make(map[string]gridRegimeState),
+		closedTradeHistory:    closedTrades,
 	}
 	r.discordNotifier = buildBacktestDiscordNotifier(cfg)
 
@@ -440,6 +453,13 @@ func (r *Runner) stepOnce() error {
 				record.Success = false
 				record.ErrorMessage = fmt.Sprintf("AI decision failed: %v", err)
 				execLog = append(execLog, fmt.Sprintf("⚠️ AI decision failed: %v", err))
+				if requestID := extractUpstreamRequestIDFromError(err); requestID != "" {
+					logger.Warnf("backtest AI request failed: run=%s cycle=%d ts=%d request_id=%s err=%v",
+						r.cfg.RunID, callCount, ts, requestID, err)
+				} else {
+					logger.Warnf("backtest AI request failed: run=%s cycle=%d ts=%d err=%v",
+						r.cfg.RunID, callCount, ts, err)
+				}
 				r.setLastError(err)
 			} else {
 				fullDecision = fd
@@ -549,6 +569,7 @@ func (r *Runner) stepOnce() error {
 		if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
 			return err
 		}
+		r.recordTradeEventForContext(evt)
 		r.notifyTradeSignal(evt, snapshot.Equity)
 	}
 
@@ -626,6 +647,7 @@ func (r *Runner) buildDecisionContext(ts int64, marketData map[string]*market.Da
 		AltcoinLeverage: r.cfg.Leverage.AltcoinLeverage,
 		Timeframes:      r.cfg.Timeframes,
 	}
+	r.populateTradeContext(ctx)
 
 	// Fetch quantitative data if enabled in strategy (uses current data as approximation)
 	strategyConfig := r.strategyEngine.GetConfig()
@@ -692,6 +714,205 @@ func (r *Runner) buildDecisionContext(ts int64, marketData map[string]*market.Da
 	record.Timestamp = time.UnixMilli(ts).UTC()
 
 	return ctx, record, nil
+}
+
+func (r *Runner) populateTradeContext(ctx *kernel.Context) {
+	if ctx == nil {
+		return
+	}
+	if len(r.closedTradeHistory) == 0 {
+		return
+	}
+
+	ctx.RecentOrders = buildRecentOrdersFromEvents(r.closedTradeHistory, backtestRecentTradeDetailsLimit)
+
+	maxDrawdown := 0.0
+	if snapshot := r.snapshotState(); snapshot.MaxDrawdownPct > 0 {
+		maxDrawdown = snapshot.MaxDrawdownPct
+	}
+	ctx.TradingStats = buildTradingStatsFromEvents(r.closedTradeHistory, maxDrawdown)
+	ctx.RecentTradingStats30 = buildRecentTradingStatsFromEvents(r.closedTradeHistory, backtestRecentStatsWindow30)
+	ctx.RecentTradingStats50 = buildRecentTradingStatsFromEvents(r.closedTradeHistory, backtestRecentStatsWindow50)
+}
+
+func (r *Runner) recordTradeEventForContext(evt TradeEvent) {
+	if !isTradeEventForAIHistory(evt) {
+		return
+	}
+	r.closedTradeHistory = append(r.closedTradeHistory, evt)
+}
+
+func loadClosedTradeHistory(runID string) ([]TradeEvent, error) {
+	events, err := LoadTradeEvents(runID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]TradeEvent, 0, len(events))
+	for _, evt := range events {
+		if isTradeEventForAIHistory(evt) {
+			filtered = append(filtered, evt)
+		}
+	}
+	return filtered, nil
+}
+
+func isTradeEventForAIHistory(evt TradeEvent) bool {
+	if evt.LiquidationFlag {
+		return true
+	}
+	action := strings.ToLower(strings.TrimSpace(evt.Action))
+	if strings.HasPrefix(action, "close") {
+		return true
+	}
+	return math.Abs(evt.RealizedPnL) > 1e-9
+}
+
+func tradeEventsTail(events []TradeEvent, n int) []TradeEvent {
+	if n <= 0 || len(events) == 0 {
+		return nil
+	}
+	if len(events) <= n {
+		return events
+	}
+	return events[len(events)-n:]
+}
+
+func buildRecentOrdersFromEvents(events []TradeEvent, limit int) []kernel.RecentOrder {
+	window := tradeEventsTail(events, limit)
+	if len(window) == 0 {
+		return nil
+	}
+	orders := make([]kernel.RecentOrder, 0, len(window))
+	for _, evt := range window {
+		entryPrice := estimateEntryPriceFromTrade(evt)
+		pnlPct := estimatePnLPct(evt, entryPrice)
+		orders = append(orders, kernel.RecentOrder{
+			Symbol:       evt.Symbol,
+			Side:         evt.Side,
+			EntryPrice:   entryPrice,
+			ExitPrice:    evt.Price,
+			RealizedPnL:  evt.RealizedPnL,
+			PnLPct:       pnlPct,
+			EntryTime:    "n/a",
+			ExitTime:     time.UnixMilli(evt.Timestamp).UTC().Format("01-02 15:04 UTC"),
+			HoldDuration: "n/a",
+		})
+	}
+	return orders
+}
+
+func buildTradingStatsFromEvents(events []TradeEvent, maxDrawdown float64) *kernel.TradingStats {
+	if len(events) == 0 {
+		return nil
+	}
+
+	var (
+		totalPnL   float64
+		totalWin   float64
+		totalLoss  float64
+		winTrades  int
+		lossTrades int
+	)
+	for _, evt := range events {
+		totalPnL += evt.RealizedPnL
+		if evt.RealizedPnL > 0 {
+			winTrades++
+			totalWin += evt.RealizedPnL
+		} else if evt.RealizedPnL < 0 {
+			lossTrades++
+			totalLoss += -evt.RealizedPnL
+		}
+	}
+
+	totalTrades := len(events)
+	winRate := 0.0
+	if totalTrades > 0 {
+		winRate = float64(winTrades) / float64(totalTrades) * 100
+	}
+
+	avgWin := 0.0
+	if winTrades > 0 {
+		avgWin = totalWin / float64(winTrades)
+	}
+
+	avgLoss := 0.0
+	if lossTrades > 0 {
+		avgLoss = totalLoss / float64(lossTrades)
+	}
+
+	profitFactor := 0.0
+	if totalLoss > 0 {
+		profitFactor = totalWin / totalLoss
+	} else if totalWin > 0 {
+		profitFactor = 100.0
+	}
+
+	return &kernel.TradingStats{
+		TotalTrades:    totalTrades,
+		WinRate:        winRate,
+		ProfitFactor:   profitFactor,
+		TotalPnL:       totalPnL,
+		AvgWin:         avgWin,
+		AvgLoss:        avgLoss,
+		MaxDrawdownPct: maxDrawdown,
+	}
+}
+
+func buildRecentTradingStatsFromEvents(events []TradeEvent, window int) *kernel.RecentTradingStats {
+	if window <= 0 {
+		return nil
+	}
+	windowEvents := tradeEventsTail(events, window)
+	if len(windowEvents) == 0 {
+		return nil
+	}
+	base := buildTradingStatsFromEvents(windowEvents, 0)
+	if base == nil {
+		return nil
+	}
+	return &kernel.RecentTradingStats{
+		WindowSize:   window,
+		TotalTrades:  base.TotalTrades,
+		WinRate:      base.WinRate,
+		ProfitFactor: base.ProfitFactor,
+		TotalPnL:     base.TotalPnL,
+		AvgWin:       base.AvgWin,
+		AvgLoss:      base.AvgLoss,
+	}
+}
+
+func estimateEntryPriceFromTrade(evt TradeEvent) float64 {
+	if evt.Quantity <= 0 {
+		return evt.Price
+	}
+
+	side := strings.ToLower(strings.TrimSpace(evt.Side))
+	switch side {
+	case "short":
+		entry := evt.Price + (evt.RealizedPnL / evt.Quantity)
+		if entry > 0 {
+			return entry
+		}
+	default:
+		entry := evt.Price - (evt.RealizedPnL / evt.Quantity)
+		if entry > 0 {
+			return entry
+		}
+	}
+	return evt.Price
+}
+
+func estimatePnLPct(evt TradeEvent, entryPrice float64) float64 {
+	if entryPrice <= 0 {
+		return 0
+	}
+	side := strings.ToLower(strings.TrimSpace(evt.Side))
+	switch side {
+	case "short":
+		return (entryPrice - evt.Price) / entryPrice * 100
+	default:
+		return (evt.Price - entryPrice) / entryPrice * 100
+	}
 }
 
 func (r *Runner) fillDecisionRecord(record *store.DecisionRecord, full *kernel.FullDecision) {
@@ -1750,6 +1971,38 @@ func shouldPersistAICacheDecision(fd *kernel.FullDecision) bool {
 	return true
 }
 
+func extractUpstreamRequestIDFromError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	prefixes := []string{
+		"request_id=",
+		"requestId=",
+		"request-id=",
+		"x-request-id=",
+	}
+	for _, prefix := range prefixes {
+		idx := strings.Index(msg, prefix)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(prefix)
+		end := start
+		for end < len(msg) {
+			ch := msg[end]
+			if ch == ',' || ch == ')' || ch == ' ' || ch == '\n' || ch == '\r' || ch == ';' || ch == '"' || ch == '\'' {
+				break
+			}
+			end++
+		}
+		if end > start {
+			return strings.Trim(msg[start:end], "\"'")
+		}
+	}
+	return ""
+}
+
 func (r *Runner) determineOpenQuantity(dec kernel.Decision, side string, price float64, isGridMode bool) float64 {
 	affordable := r.determineQuantity(dec, price)
 	if affordable <= 0 {
@@ -2244,6 +2497,7 @@ func (r *Runner) closeAllPositions(note string) error {
 		if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
 			return err
 		}
+		r.recordTradeEventForContext(evt)
 		r.notifyTradeSignal(evt, snapshot.Equity)
 	}
 
@@ -2356,6 +2610,7 @@ func (r *Runner) closeSinglePosition(symbol, side, note string) error {
 	if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
 		return err
 	}
+	r.recordTradeEventForContext(evt)
 	r.notifyTradeSignal(evt, snapshot.Equity)
 
 	equity, unrealized, _ := r.account.TotalEquity(priceMap)

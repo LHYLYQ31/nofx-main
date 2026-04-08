@@ -75,21 +75,22 @@ func New() AIClient {
 // NewClient creates client (supports options pattern)
 //
 // Usage examples:
-//   // Basic usage (backward compatible)
-//   client := mcp.NewClient()
 //
-//   // Custom logger
-//   client := mcp.NewClient(mcp.WithLogger(customLogger))
+//	// Basic usage (backward compatible)
+//	client := mcp.NewClient()
 //
-//   // Custom timeout
-//   client := mcp.NewClient(mcp.WithTimeout(60*time.Second))
+//	// Custom logger
+//	client := mcp.NewClient(mcp.WithLogger(customLogger))
 //
-//   // Combine multiple options
-//   client := mcp.NewClient(
-//       mcp.WithDeepSeekConfig("sk-xxx"),
-//       mcp.WithLogger(customLogger),
-//       mcp.WithTimeout(60*time.Second),
-//   )
+//	// Custom timeout
+//	client := mcp.NewClient(mcp.WithTimeout(60*time.Second))
+//
+//	// Combine multiple options
+//	client := mcp.NewClient(
+//	    mcp.WithDeepSeekConfig("sk-xxx"),
+//	    mcp.WithLogger(customLogger),
+//	    mcp.WithTimeout(60*time.Second),
+//	)
 func NewClient(opts ...ClientOption) AIClient {
 	// 1. Create default config
 	cfg := DefaultConfig()
@@ -123,6 +124,69 @@ func NewClient(opts ...ClientOption) AIClient {
 	client.hooks = client
 
 	return client
+}
+
+// CloneAsBaseClient clones any AIClient into a standalone *Client.
+// It resets dynamic hooks to point to the cloned client itself so that
+// subsequent calls use the cloned runtime config rather than the source instance.
+func CloneAsBaseClient(base AIClient) *Client {
+	switch c := base.(type) {
+	case *Client:
+		cp := *c
+		cp.hooks = &cp
+		return &cp
+	case *DeepSeekClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *QwenClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *ClaudeClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *KimiClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *GeminiClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *GrokClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *OpenAIClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	case *MiniMaxClient:
+		if c != nil && c.Client != nil {
+			cp := *c.Client
+			cp.hooks = &cp
+			return &cp
+		}
+	}
+	fallback := NewClient().(*Client)
+	fallback.hooks = fallback
+	return fallback
 }
 
 // SetCustomAPI sets custom OpenAI-compatible API
@@ -304,6 +368,95 @@ func (client *Client) buildRequest(url string, jsonData []byte) (*http.Request, 
 	return req, nil
 }
 
+func extractRequestID(headers http.Header) (string, string) {
+	keys := []string{
+		"x-request-id",
+		"request-id",
+		"x-tt-logid",
+		"x-log-id",
+		"x-amzn-requestid",
+		"trace-id",
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(headers.Get(key)); value != "" {
+			return key, value
+		}
+	}
+	return "", ""
+}
+
+func extractRequestIDFromBody(body []byte) (string, string) {
+	if len(body) == 0 {
+		return "", ""
+	}
+	var payload any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", ""
+	}
+	return findRequestIDInValue(payload)
+}
+
+func findRequestIDInValue(v any) (string, string) {
+	switch value := v.(type) {
+	case map[string]any:
+		keys := []string{
+			"request_id",
+			"request-id",
+			"requestId",
+			"x-request-id",
+			"x_request_id",
+			"trace-id",
+			"trace_id",
+			"traceId",
+			"log_id",
+			"logId",
+		}
+		for _, key := range keys {
+			if raw, ok := value[key]; ok {
+				id := strings.TrimSpace(fmt.Sprintf("%v", raw))
+				if id != "" && id != "<nil>" && id != "null" {
+					return key, id
+				}
+			}
+		}
+
+		priorityChildren := []string{"error", "meta", "metadata", "data", "detail"}
+		for _, key := range priorityChildren {
+			if child, ok := value[key]; ok {
+				if childKey, childID := findRequestIDInValue(child); childID != "" {
+					return childKey, childID
+				}
+			}
+		}
+		for _, child := range value {
+			if childKey, childID := findRequestIDInValue(child); childID != "" {
+				return childKey, childID
+			}
+		}
+	case []any:
+		for _, child := range value {
+			if childKey, childID := findRequestIDInValue(child); childID != "" {
+				return childKey, childID
+			}
+		}
+	}
+	return "", ""
+}
+
+func extractUpstreamRequestID(headers http.Header, body []byte) (string, string) {
+	if key, value := extractRequestID(headers); value != "" {
+		return key, value
+	}
+	return extractRequestIDFromBody(body)
+}
+
+func truncateForLog(body []byte, limit int) string {
+	if limit <= 0 || len(body) <= limit {
+		return strings.TrimSpace(string(body))
+	}
+	return strings.TrimSpace(string(body[:limit])) + "...(truncated)"
+}
+
 // call single AI API call (fixed flow, cannot be overridden)
 func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 	// Print current AI configuration
@@ -345,8 +498,24 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	requestIDHeader, requestID := extractUpstreamRequestID(resp.Header, body)
+	if requestID != "" {
+		client.logger.Infof("📎 [MCP %s] upstream request id: %s=%s", client.String(), requestIDHeader, requestID)
+	}
+
 	// Step 7: Check HTTP status code (fixed logic)
 	if resp.StatusCode != http.StatusOK {
+		bodyPreview := truncateForLog(body, 512)
+		if requestID != "" {
+			client.logger.Warnf("⚠️ [MCP %s] upstream API error status=%d request_id=%s body=%s",
+				client.String(), resp.StatusCode, requestID, bodyPreview)
+		} else {
+			client.logger.Warnf("⚠️ [MCP %s] upstream API error status=%d body=%s",
+				client.String(), resp.StatusCode, bodyPreview)
+		}
+		if requestID != "" {
+			return "", fmt.Errorf("API returned error (status %d, request_id=%s): %s", resp.StatusCode, requestID, string(body))
+		}
 		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -389,12 +558,13 @@ func (client *Client) isRetryableError(err error) bool {
 // - Streaming response (future support)
 //
 // Usage example:
-//   request := NewRequestBuilder().
-//       WithSystemPrompt("You are helpful").
-//       WithUserPrompt("Hello").
-//       WithTemperature(0.8).
-//       Build()
-//   result, err := client.CallWithRequest(request)
+//
+//	request := NewRequestBuilder().
+//	    WithSystemPrompt("You are helpful").
+//	    WithUserPrompt("Hello").
+//	    WithTemperature(0.8).
+//	    Build()
+//	result, err := client.CallWithRequest(request)
 func (client *Client) CallWithRequest(req *Request) (string, error) {
 	if client.APIKey == "" {
 		return "", fmt.Errorf("AI API key not set, please call SetAPIKey first")
@@ -478,8 +648,24 @@ func (client *Client) callWithRequest(req *Request) (string, error) {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	requestIDHeader, requestID := extractUpstreamRequestID(resp.Header, body)
+	if requestID != "" {
+		client.logger.Infof("📎 [MCP %s] upstream request id: %s=%s", client.String(), requestIDHeader, requestID)
+	}
+
 	// Check HTTP status code
 	if resp.StatusCode != http.StatusOK {
+		bodyPreview := truncateForLog(body, 512)
+		if requestID != "" {
+			client.logger.Warnf("⚠️ [MCP %s] upstream API error status=%d request_id=%s body=%s",
+				client.String(), resp.StatusCode, requestID, bodyPreview)
+		} else {
+			client.logger.Warnf("⚠️ [MCP %s] upstream API error status=%d body=%s",
+				client.String(), resp.StatusCode, bodyPreview)
+		}
+		if requestID != "" {
+			return "", fmt.Errorf("API returned error (status %d, request_id=%s): %s", resp.StatusCode, requestID, string(body))
+		}
 		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
 	}
 

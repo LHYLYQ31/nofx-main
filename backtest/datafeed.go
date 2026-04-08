@@ -3,9 +3,11 @@ package backtest
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"nofx/market"
+	"nofx/store"
 )
 
 type timeframeSeries struct {
@@ -26,15 +28,22 @@ type DataFeed struct {
 	decisionTimes []int64
 	primaryTF     string
 	longerTF      string
+	tfWindows     map[string]int
 }
 
-func NewDataFeed(cfg BacktestConfig) (*DataFeed, error) {
+const (
+	defaultPrimaryWindow = 60
+	defaultLongerWindow  = 30
+)
+
+func NewDataFeed(cfg BacktestConfig, strategyCfg *store.StrategyConfig) (*DataFeed, error) {
 	df := &DataFeed{
 		cfg:          cfg,
 		symbols:      make([]string, len(cfg.Symbols)),
 		timeframes:   append([]string(nil), cfg.Timeframes...),
 		symbolSeries: make(map[string]*symbolSeries),
 		primaryTF:    cfg.DecisionTimeframe,
+		tfWindows:    buildTimeframeWindows(cfg, strategyCfg),
 	}
 	copy(df.symbols, cfg.Symbols)
 
@@ -66,7 +75,12 @@ func (df *DataFeed) loadAll() error {
 		ss := &symbolSeries{byTF: make(map[string]*timeframeSeries)}
 		for _, tf := range df.timeframes {
 			dur, _ := market.TFDuration(tf)
-			buffer := dur * 200
+			// Preload enough bars so fixed-window slicing keeps indicator warmup stable.
+			bufferBars := df.windowSize(tf)
+			if bufferBars < 200 {
+				bufferBars = 200
+			}
+			buffer := dur * time.Duration(bufferBars)
 			fetchStart := start.Add(-buffer)
 			if fetchStart.Before(time.Unix(0, 0)) {
 				fetchStart = time.Unix(0, 0)
@@ -147,6 +161,10 @@ func (df *DataFeed) sliceUpTo(symbol, tf string, ts int64) []market.Kline {
 	if idx <= 0 {
 		return nil
 	}
+	window := df.windowSize(tf)
+	if window > 0 && idx > window {
+		return series.klines[idx-window : idx]
+	}
 	return series.klines[:idx]
 }
 
@@ -217,4 +235,58 @@ func (df *DataFeed) decisionBarSnapshot(symbol string, ts int64) (*market.Kline,
 		next = &series.klines[idx+1]
 	}
 	return curr, next
+}
+
+func buildTimeframeWindows(cfg BacktestConfig, strategyCfg *store.StrategyConfig) map[string]int {
+	primaryTF := cfg.DecisionTimeframe
+	primaryWindow := defaultPrimaryWindow
+	longerWindow := defaultLongerWindow
+
+	if strategyCfg != nil {
+		kline := strategyCfg.Indicators.Klines
+		if normalized, err := market.NormalizeTimeframe(kline.PrimaryTimeframe); err == nil && normalized != "" {
+			primaryTF = normalized
+		}
+		if kline.PrimaryCount > 0 {
+			primaryWindow = kline.PrimaryCount
+		}
+		if kline.LongerCount > 0 {
+			longerWindow = kline.LongerCount
+		}
+	}
+
+	windows := make(map[string]int, len(cfg.Timeframes)+1)
+	for _, tf := range cfg.Timeframes {
+		norm := normalizeTimeframeOrFallback(tf)
+		if norm == primaryTF {
+			windows[norm] = primaryWindow
+			continue
+		}
+		windows[norm] = longerWindow
+	}
+	if _, ok := windows[primaryTF]; !ok {
+		windows[primaryTF] = primaryWindow
+	}
+	return windows
+}
+
+func (df *DataFeed) windowSize(tf string) int {
+	if df == nil || len(df.tfWindows) == 0 {
+		return defaultLongerWindow
+	}
+	key := normalizeTimeframeOrFallback(tf)
+	if v, ok := df.tfWindows[key]; ok && v > 0 {
+		return v
+	}
+	if v, ok := df.tfWindows[df.primaryTF]; ok && v > 0 {
+		return v
+	}
+	return defaultLongerWindow
+}
+
+func normalizeTimeframeOrFallback(tf string) string {
+	if normalized, err := market.NormalizeTimeframe(strings.TrimSpace(tf)); err == nil && normalized != "" {
+		return normalized
+	}
+	return strings.TrimSpace(tf)
 }

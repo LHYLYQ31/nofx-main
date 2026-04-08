@@ -94,6 +94,17 @@ type TradingStats struct {
 	MaxDrawdownPct float64 `json:"max_drawdown_pct"` // Maximum drawdown (%)
 }
 
+// RecentTradingStats summarizes a rolling closed-trade window.
+type RecentTradingStats struct {
+	WindowSize   int     `json:"window_size"`
+	TotalTrades  int     `json:"total_trades"`
+	WinRate      float64 `json:"win_rate"`
+	ProfitFactor float64 `json:"profit_factor"`
+	TotalPnL     float64 `json:"total_pnl"`
+	AvgWin       float64 `json:"avg_win"`
+	AvgLoss      float64 `json:"avg_loss"`
+}
+
 // RecentOrder recently completed order (for AI input)
 type RecentOrder struct {
 	Symbol       string  `json:"symbol"`        // Trading pair
@@ -109,25 +120,27 @@ type RecentOrder struct {
 
 // Context trading context (complete information passed to AI)
 type Context struct {
-	CurrentTime        string                             `json:"current_time"`
-	RuntimeMinutes     int                                `json:"runtime_minutes"`
-	CallCount          int                                `json:"call_count"`
-	Account            AccountInfo                        `json:"account"`
-	Positions          []PositionInfo                     `json:"positions"`
-	CandidateCoins     []CandidateCoin                    `json:"candidate_coins"`
-	PromptVariant      string                             `json:"prompt_variant,omitempty"`
-	TradingStats       *TradingStats                      `json:"trading_stats,omitempty"`
-	RecentOrders       []RecentOrder                      `json:"recent_orders,omitempty"`
-	MarketDataMap      map[string]*market.Data            `json:"-"`
-	MultiTFMarket      map[string]map[string]*market.Data `json:"-"`
-	OITopDataMap       map[string]*OITopData              `json:"-"`
-	QuantDataMap       map[string]*QuantData              `json:"-"`
-	OIRankingData      *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
-	NetFlowRankingData *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
-	PriceRankingData   *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
-	BTCETHLeverage     int                                `json:"-"`
-	AltcoinLeverage    int                                `json:"-"`
-	Timeframes         []string                           `json:"-"`
+	CurrentTime          string                             `json:"current_time"`
+	RuntimeMinutes       int                                `json:"runtime_minutes"`
+	CallCount            int                                `json:"call_count"`
+	Account              AccountInfo                        `json:"account"`
+	Positions            []PositionInfo                     `json:"positions"`
+	CandidateCoins       []CandidateCoin                    `json:"candidate_coins"`
+	PromptVariant        string                             `json:"prompt_variant,omitempty"`
+	TradingStats         *TradingStats                      `json:"trading_stats,omitempty"`
+	RecentOrders         []RecentOrder                      `json:"recent_orders,omitempty"`
+	RecentTradingStats30 *RecentTradingStats                `json:"recent_trading_stats_30,omitempty"`
+	RecentTradingStats50 *RecentTradingStats                `json:"recent_trading_stats_50,omitempty"`
+	MarketDataMap        map[string]*market.Data            `json:"-"`
+	MultiTFMarket        map[string]map[string]*market.Data `json:"-"`
+	OITopDataMap         map[string]*OITopData              `json:"-"`
+	QuantDataMap         map[string]*QuantData              `json:"-"`
+	OIRankingData        *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
+	NetFlowRankingData   *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
+	PriceRankingData     *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
+	BTCETHLeverage       int                                `json:"-"`
+	AltcoinLeverage      int                                `json:"-"`
+	Timeframes           []string                           `json:"-"`
 }
 
 // Decision AI trading decision
@@ -1346,6 +1359,17 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		sb.WriteString("\n")
 	}
 
+	if ctx.RecentTradingStats30 != nil || ctx.RecentTradingStats50 != nil {
+		sb.WriteString("## Recent Rolling Trade Summary\n")
+		if ctx.RecentTradingStats30 != nil {
+			sb.WriteString(formatRecentTradingStatsLine(ctx.RecentTradingStats30))
+		}
+		if ctx.RecentTradingStats50 != nil {
+			sb.WriteString(formatRecentTradingStatsLine(ctx.RecentTradingStats50))
+		}
+		sb.WriteString("\n")
+	}
+
 	// Position information
 	if len(ctx.Positions) > 0 {
 		sb.WriteString("## Current Positions\n")
@@ -1417,6 +1441,14 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	sb.WriteString("Now output decision JSON array only. No reasoning text.\n")
 
 	return sb.String()
+}
+
+func formatRecentTradingStatsLine(stats *RecentTradingStats) string {
+	if stats == nil || stats.TotalTrades <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("Last %d closed trades: WinRate %.2f%% | Profit Factor %.2f | Total PnL %+.2f USDT | Avg Win +%.2f | Avg Loss -%.2f\n",
+		stats.WindowSize, stats.WinRate, stats.ProfitFactor, stats.TotalPnL, stats.AvgWin, stats.AvgLoss)
 }
 
 func (e *StrategyEngine) formatPositionInfo(index int, pos PositionInfo, ctx *Context) string {

@@ -258,6 +258,12 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 			}
 			result.Indicators.Klines.EnableMultiTimeframe = len(cfg.Timeframes) > 1
 		}
+		if result.Indicators.Klines.PrimaryCount <= 0 {
+			result.Indicators.Klines.PrimaryCount = 60
+		}
+		if result.Indicators.Klines.LongerCount <= 0 {
+			result.Indicators.Klines.LongerCount = 30
+		}
 
 		// Override leverage with backtest config
 		if cfg.Leverage.BTCETHLeverage > 0 {
@@ -297,9 +303,9 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 		Indicators: store.IndicatorConfig{
 			Klines: store.KlineConfig{
 				PrimaryTimeframe:     primaryTF,
-				PrimaryCount:         30,
+				PrimaryCount:         60,
 				LongerTimeframe:      longerTF,
-				LongerCount:          10,
+				LongerCount:          30,
 				EnableMultiTimeframe: len(cfg.Timeframes) > 1,
 				SelectedTimeframes:   cfg.Timeframes,
 			},
