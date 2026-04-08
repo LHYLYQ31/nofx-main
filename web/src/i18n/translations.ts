@@ -181,6 +181,7 @@ export const translations = {
         h24: '24h',
         d3: '3d',
         d7: '7d',
+        d365: '365d',
       },
       actions: {
         pause: 'Pause',
@@ -1487,6 +1488,7 @@ export const translations = {
         h24: '24小时',
         d3: '3天',
         d7: '7天',
+        d365: '365天',
       },
       actions: {
         pause: '暂停',
@@ -2662,6 +2664,7 @@ export const translations = {
         h24: '24j',
         d3: '3h',
         d7: '7h',
+        d365: '365h',
       },
       actions: {
         pause: 'Jeda',

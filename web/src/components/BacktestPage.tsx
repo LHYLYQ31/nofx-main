@@ -1361,6 +1361,7 @@ export function BacktestPage() {
     { label: tr('quickRanges.d3'), hours: 72 },
     { label: tr('quickRanges.d7'), hours: 168 },
     { label: tr('ui.quick30d'), hours: 720 },
+    { label: tr('quickRanges.d365'), hours: 8760 },
   ]
 
   const applyQuickRange = (hours: number) => {
