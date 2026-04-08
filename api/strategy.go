@@ -783,6 +783,14 @@ func (s *Server) validateAIModelCredential(provider, apiKey, customURL, customMo
 	if provider == "" {
 		return fmt.Errorf("empty provider")
 	}
+	if provider == "custom" {
+		if customURL == "" {
+			return fmt.Errorf("custom provider requires custom_api_url")
+		}
+		if customModel == "" {
+			return fmt.Errorf("custom provider requires custom_model_name")
+		}
+	}
 
 	var aiClient mcp.AIClient
 	switch provider {

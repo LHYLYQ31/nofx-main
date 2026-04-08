@@ -112,6 +112,11 @@ const AI_PROVIDER_CONFIG: Record<string, {
     apiUrl: 'https://platform.minimax.io',
     apiName: 'MiniMax',
   },
+  custom: {
+    defaultModel: 'custom-model',
+    apiUrl: '',
+    apiName: 'OpenAI-Compatible',
+  },
   'blockrun-base': {
     defaultModel: 'gpt-5.4',
     apiUrl: 'https://blockrun.ai',
@@ -591,7 +596,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       buildRequest: (models) => ({
         models: Object.fromEntries(
           models.map((model) => [
-            model.provider,
+            model.id,
             {
               enabled: model.enabled,
               api_key: model.apiKey || '',
@@ -622,23 +627,25 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     customModelName?: string
   ) => {
     try {
-      // 创建或更新用户的模型配置
-      const existingModel = allModels?.find((m) => m.id === modelId)
-      let updatedModels
-
-      // 找到要配置的模型（优先从已配置列表，其次从支持列表）
-      const modelToUpdate =
-        existingModel || supportedModels?.find((m) => m.id === modelId)
-      if (!modelToUpdate) {
+      // 先定位模板（支持列表）与已配置模型（用户列表）
+      const modelTemplate =
+        supportedModels?.find((m) => m.id === modelId) ||
+        allModels?.find((m) => m.id === modelId)
+      if (!modelTemplate) {
         toast.error(t('modelNotExist', language))
         return
       }
 
+      // 兼容历史数据：如果同 provider 已存在配置，优先更新旧记录而不是追加重复记录
+      const existingModel =
+        allModels?.find((m) => m.id === modelId) ||
+        allModels?.find((m) => m.provider === modelTemplate.provider)
+
+      let updatedModels
       if (existingModel) {
-        // 更新现有配置
         updatedModels =
           allModels?.map((m) =>
-            m.id === modelId
+            m.id === existingModel.id
               ? {
                 ...m,
                 apiKey,
@@ -649,9 +656,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               : m
           ) || []
       } else {
-        // 添加新配置
         const newModel = {
-          ...modelToUpdate,
+          ...modelTemplate,
           apiKey,
           customApiUrl: customApiUrl || '',
           customModelName: customModelName || '',
@@ -663,7 +669,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       const request = {
         models: Object.fromEntries(
           updatedModels.map((model) => [
-            model.provider, // 使用 provider 而不是 id
+            model.id,
             {
               enabled: model.enabled,
               api_key: model.apiKey || '',
@@ -1556,6 +1562,7 @@ function ModelConfigModal({
   const selectedModel = editingModelId
     ? configuredModels?.find((m) => m.id === selectedModelId)
     : allModels?.find((m) => m.id === selectedModelId)
+  const isCustomProvider = selectedModel?.provider === 'custom'
 
   useEffect(() => {
     if (editingModelId && selectedModel) {
@@ -1582,11 +1589,15 @@ function ModelConfigModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedModelId || !apiKey.trim()) return
+    if (isCustomProvider && (!baseUrl.trim() || !modelName.trim())) {
+      toast.error(language === 'zh' ? '自定义模型必须填写 Base URL 和模型名称' : 'Custom model requires Base URL and model name')
+      return
+    }
     onSave(selectedModelId, apiKey.trim(), baseUrl.trim() || undefined, modelName.trim() || undefined)
   }
 
   const availableModels = allModels || []
-  const configuredIds = new Set(configuredModels?.map(m => m.id) || [])
+  const configuredProviders = new Set(configuredModels?.map(m => m.provider) || [])
   const stepLabels = language === 'zh' ? ['选择模型', '配置 API'] : ['Select Model', 'Configure API']
 
   return (
@@ -1648,7 +1659,7 @@ function ModelConfigModal({
                     model={model}
                     selected={selectedModelId === model.id}
                     onClick={() => handleSelectModel(model.id)}
-                    configured={configuredIds.has(model.id)}
+                    configured={configuredProviders.has(model.provider)}
                   />
                 ))}
               </div>
@@ -1668,7 +1679,7 @@ function ModelConfigModal({
                         model={model}
                         selected={selectedModelId === model.id}
                         onClick={() => handleSelectModel(model.id)}
-                        configured={configuredIds.has(model.id)}
+                        configured={configuredProviders.has(model.provider)}
                       />
                     ))}
                   </div>
@@ -1698,7 +1709,7 @@ function ModelConfigModal({
                     {selectedModel.provider} • {AI_PROVIDER_CONFIG[selectedModel.provider]?.defaultModel || selectedModel.id}
                   </div>
                 </div>
-                {AI_PROVIDER_CONFIG[selectedModel.provider] && (
+                {AI_PROVIDER_CONFIG[selectedModel.provider]?.apiUrl && (
                   <a
                     href={AI_PROVIDER_CONFIG[selectedModel.provider].apiUrl}
                     target="_blank"
@@ -1855,7 +1866,7 @@ function ModelConfigModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={!selectedModel || !apiKey.trim()}
+                  disabled={!selectedModel || !apiKey.trim() || (isCustomProvider && (!baseUrl.trim() || !modelName.trim()))}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: '#8B5CF6', color: '#fff' }}
                 >
