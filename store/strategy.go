@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -443,6 +444,19 @@ func (s *StrategyStore) Get(userID, id string) (*Strategy, error) {
 // GetAccessible gets a strategy that the user can access via ownership/default/grant.
 func (s *StrategyStore) GetAccessible(userID, id string) (*Strategy, error) {
 	var st Strategy
+
+	// 0) Admin can access any strategy by ID.
+	var user User
+	if err := s.db.Select("role").Where("id = ?", userID).First(&user).Error; err == nil {
+		if strings.EqualFold(strings.TrimSpace(user.Role), "ADMIN") {
+			if err := s.db.Where("id = ?", id).First(&st).Error; err != nil {
+				return nil, err
+			}
+			return &st, nil
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
 
 	// 1) Owner can access own strategy directly.
 	if err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&st).Error; err == nil {
