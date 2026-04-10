@@ -605,6 +605,8 @@ export interface BacktestKlinesResponse {
 // Strategy Studio Types
 export interface Strategy {
   id: string;
+  user_id?: string;
+  is_owner?: boolean;
   name: string;
   description: string;
   is_active: boolean;

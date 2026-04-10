@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"nofx/kernel"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func isAdminRole(c *gin.Context) bool {
@@ -102,7 +104,16 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 		return
 	}
 
-	strategies, err := s.store.Strategy().List(userID)
+	admin := isAdminRole(c)
+	var (
+		strategies []*store.Strategy
+		err        error
+	)
+	if admin {
+		strategies, err = s.store.Strategy().ListAll()
+	} else {
+		strategies, err = s.store.Strategy().List(userID)
+	}
 	if err != nil {
 		SafeInternalError(c, "Failed to get strategy list", err)
 		return
@@ -110,7 +121,6 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 
 	// Convert to frontend format
 	result := make([]gin.H, 0, len(strategies))
-	admin := isAdminRole(c)
 	for _, st := range strategies {
 		if !admin && st.UserID != userID {
 			continue
@@ -128,6 +138,8 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 			"is_default":     st.IsDefault,
 			"is_public":      st.IsPublic,
 			"config_visible": st.ConfigVisible,
+			"user_id":        st.UserID,
+			"is_owner":       st.UserID == userID,
 			"created_at":     st.CreatedAt,
 			"updated_at":     st.UpdatedAt,
 		})
@@ -390,7 +402,25 @@ func (s *Server) handleDeleteStrategy(c *gin.Context) {
 		return
 	}
 
+	st, err := s.store.Strategy().GetByID(strategyID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
+			return
+		}
+		SafeInternalError(c, "Failed to get strategy", err)
+		return
+	}
+	if st.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete your own strategies"})
+		return
+	}
+
 	if err := s.store.Strategy().Delete(userID, strategyID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
+			return
+		}
 		SafeInternalError(c, "Failed to delete strategy", err)
 		return
 	}

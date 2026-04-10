@@ -278,7 +278,16 @@ export function StrategyStudioPage() {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) throw new Error('Failed to delete strategy')
+      if (!response.ok) {
+        let errorMessage = 'Failed to delete strategy'
+        try {
+          const payload = await response.json()
+          if (payload?.error) errorMessage = payload.error
+        } catch {
+          // ignore json parse error and keep fallback message
+        }
+        throw new Error(errorMessage)
+      }
       notify.success(language === 'zh' ? '策略已删除' : 'Strategy deleted')
       // Clear selection if deleted strategy was selected
       if (selectedStrategy?.id === id) {
@@ -782,13 +791,15 @@ export function StrategyStudioPage() {
                           >
                             <Copy className="w-3 h-3" />
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteStrategy(strategy.id) }}
-                            className="p-1 rounded hover:bg-nofx-danger/20 text-nofx-danger"
-                            title={language === 'zh' ? '删除' : 'Delete'}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {strategy.is_owner !== false && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteStrategy(strategy.id) }}
+                              className="p-1 rounded hover:bg-nofx-danger/20 text-nofx-danger"
+                              title={language === 'zh' ? '删除' : 'Delete'}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

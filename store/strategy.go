@@ -378,7 +378,14 @@ func (s *StrategyStore) Delete(userID, id string) error {
 		return fmt.Errorf("cannot delete system default strategy")
 	}
 
-	return s.db.Where("id = ? AND user_id = ?", id, userID).Delete(&Strategy{}).Error
+	result := s.db.Where("id = ? AND user_id = ?", id, userID).Delete(&Strategy{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // List get user's strategy list
