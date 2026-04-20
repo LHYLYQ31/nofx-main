@@ -107,28 +107,31 @@ func (df *DataFeed) loadAll() error {
 		df.symbolSeries[symbol] = ss
 	}
 
-	// Generate backtest progress timeline using the primary timeframe of the first symbol
-	firstSymbol := df.symbols[0]
-	primarySeries := df.symbolSeries[firstSymbol].byTF[df.primaryTF]
+	// Generate a strictly aligned decision timeline across all symbols.
+	// A timestamp is usable only when every symbol has a primary timeframe bar at that ts.
 	startMs := start.UnixMilli()
 	endMs := end.UnixMilli()
-	for _, ts := range primarySeries.closeTimes {
-		if ts < startMs {
-			continue
+	tsCount := make(map[int64]int)
+	for _, symbol := range df.symbols {
+		primarySeries, ok := df.symbolSeries[symbol].byTF[df.primaryTF]
+		if !ok || primarySeries == nil {
+			return fmt.Errorf("symbol %s missing timeframe %s", symbol, df.primaryTF)
 		}
-		if ts > endMs {
-			break
-		}
-		df.decisionTimes = append(df.decisionTimes, ts)
-		// Align other symbols; report error early if data is missing
-		for _, symbol := range df.symbols[1:] {
-			if _, ok := df.symbolSeries[symbol].byTF[df.primaryTF]; !ok {
-				return fmt.Errorf("symbol %s missing timeframe %s", symbol, df.primaryTF)
+		for _, ts := range primarySeries.closeTimes {
+			if ts < startMs || ts > endMs {
+				continue
 			}
+			tsCount[ts]++
 		}
 	}
+	for ts, count := range tsCount {
+		if count == len(df.symbols) {
+			df.decisionTimes = append(df.decisionTimes, ts)
+		}
+	}
+	sort.Slice(df.decisionTimes, func(i, j int) bool { return df.decisionTimes[i] < df.decisionTimes[j] })
 	if len(df.decisionTimes) == 0 {
-		return fmt.Errorf("no decision bars in range")
+		return fmt.Errorf("no aligned decision bars in range")
 	}
 	return nil
 }

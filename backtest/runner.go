@@ -70,6 +70,11 @@ type manualClosePositionRequest struct {
 	Resp   chan error
 }
 
+type positionBracket struct {
+	StopLoss   float64
+	TakeProfit float64
+}
+
 // Runner encapsulates the lifecycle of a single backtest run.
 type Runner struct {
 	cfg            BacktestConfig
@@ -119,6 +124,7 @@ type Runner struct {
 	gridRegimes           map[string]gridRegimeState
 
 	closedTradeHistory []TradeEvent
+	positionBrackets   map[string]positionBracket
 }
 
 // NewRunner constructs a backtest runner.
@@ -207,6 +213,7 @@ func NewRunner(cfg BacktestConfig, mcpClient mcp.AIClient) (*Runner, error) {
 		gridLastRecenterCycle: make(map[string]int),
 		gridRegimes:           make(map[string]gridRegimeState),
 		closedTradeHistory:    closedTrades,
+		positionBrackets:      make(map[string]positionBracket),
 	}
 	r.discordNotifier = buildBacktestDiscordNotifier(cfg)
 
@@ -402,6 +409,30 @@ func (r *Runner) stepOnce() error {
 		if len(fillLogs) > 0 {
 			execLog = append(execLog, fillLogs...)
 		}
+	}
+
+	// [CODE ENFORCED] Trigger persisted stop-loss / take-profit levels before new AI decisions.
+	bracketEvents, bracketLogs, bracketErr := r.checkStopTakeProfitTriggers(ts, state.DecisionCycle)
+	if bracketErr != nil {
+		return bracketErr
+	}
+	if len(bracketEvents) > 0 {
+		tradeEvents = append(tradeEvents, bracketEvents...)
+	}
+	if len(bracketLogs) > 0 {
+		execLog = append(execLog, bracketLogs...)
+	}
+
+	// [CODE ENFORCED] ATR volatility stop-loss check before new AI decisions.
+	atrStopEvents, atrStopLogs, atrStopErr := r.checkATRVolatilityStops(ts, marketData, priceMap, state.DecisionCycle)
+	if atrStopErr != nil {
+		return atrStopErr
+	}
+	if len(atrStopEvents) > 0 {
+		tradeEvents = append(tradeEvents, atrStopEvents...)
+	}
+	if len(atrStopLogs) > 0 {
+		execLog = append(execLog, atrStopLogs...)
 	}
 
 	if shouldDecide {
@@ -698,6 +729,7 @@ func (r *Runner) buildDecisionContext(ts int64, marketData map[string]*market.Da
 	}
 
 	record := &store.DecisionRecord{
+		CycleNumber: callCount,
 		AccountState: store.AccountSnapshot{
 			TotalBalance:          accountInfo.TotalEquity,
 			AvailableBalance:      accountInfo.AvailableBalance,
@@ -1683,6 +1715,175 @@ func (r *Runner) minConfidenceThreshold() int {
 	return minConf
 }
 
+func (r *Runner) riskControlConfig() store.RiskControlConfig {
+	cfg := r.strategyEngine.GetConfig()
+	if cfg != nil {
+		return cfg.RiskControl
+	}
+	return store.GetDefaultStrategyConfig("en").RiskControl
+}
+
+func shouldSkipByPriceDeviation(expectedEntry, marketPrice, limitPct float64) bool {
+	if expectedEntry <= 0 || marketPrice <= 0 || limitPct <= 0 {
+		return false
+	}
+	deviationPct := math.Abs(marketPrice-expectedEntry) / expectedEntry * 100
+	return deviationPct > limitPct
+}
+
+func effectiveMinRiskRewardRatio(v float64) float64 {
+	if v <= 0 {
+		return 3.0
+	}
+	return v
+}
+
+func (r *Runner) setPositionBracket(symbol, side string, stopLoss, takeProfit float64) {
+	if r == nil {
+		return
+	}
+	key := positionKey(strings.ToUpper(strings.TrimSpace(symbol)), strings.ToLower(strings.TrimSpace(side)))
+	if stopLoss <= 0 && takeProfit <= 0 {
+		delete(r.positionBrackets, key)
+		return
+	}
+	r.positionBrackets[key] = positionBracket{
+		StopLoss:   stopLoss,
+		TakeProfit: takeProfit,
+	}
+}
+
+func (r *Runner) getPositionBracket(symbol, side string) (positionBracket, bool) {
+	if r == nil {
+		return positionBracket{}, false
+	}
+	key := positionKey(strings.ToUpper(strings.TrimSpace(symbol)), strings.ToLower(strings.TrimSpace(side)))
+	bracket, ok := r.positionBrackets[key]
+	return bracket, ok
+}
+
+func (r *Runner) clearPositionBracket(symbol, side string) {
+	if r == nil {
+		return
+	}
+	key := positionKey(strings.ToUpper(strings.TrimSpace(symbol)), strings.ToLower(strings.TrimSpace(side)))
+	delete(r.positionBrackets, key)
+}
+
+func (r *Runner) checkStopTakeProfitTriggers(ts int64, cycle int) ([]TradeEvent, []string, error) {
+	positions := append([]*position(nil), r.account.Positions()...)
+	events := make([]TradeEvent, 0)
+	logs := make([]string, 0)
+
+	for _, pos := range positions {
+		if pos == nil || pos.Quantity <= 0 {
+			continue
+		}
+		bracket, ok := r.getPositionBracket(pos.Symbol, pos.Side)
+		if !ok {
+			continue
+		}
+
+		curr, _ := r.feed.decisionBarSnapshot(pos.Symbol, ts)
+		if curr == nil {
+			continue
+		}
+
+		triggerReason := ""
+		triggerPrice := 0.0
+		// Gap-aware fill resolution:
+		//  - If the bar opens already past a bracket level, the order fills at Open
+		//    (worst-case for stop-loss, realized at Open for take-profit), because
+		//    the first trade of the bar is at/near the Open and the trigger price
+		//    never actually traded. Using the bracket price understates gap losses
+		//    and overstates gap-through take-profit gains.
+		//  - Otherwise fall back to the bracket price for intrabar touches.
+		//  - Conservative tie-break: if both sides are touched and there is no
+		//    gap at Open, treat as stop-loss (unchanged behavior).
+		if pos.Side == "long" {
+			gapStop := bracket.StopLoss > 0 && curr.Open > 0 && curr.Open <= bracket.StopLoss
+			gapTP := bracket.TakeProfit > 0 && curr.Open > 0 && curr.Open >= bracket.TakeProfit
+			stopHit := bracket.StopLoss > 0 && curr.Low > 0 && curr.Low <= bracket.StopLoss
+			tpHit := bracket.TakeProfit > 0 && curr.High > 0 && curr.High >= bracket.TakeProfit
+			switch {
+			case gapStop:
+				triggerReason = "stop_loss"
+				triggerPrice = curr.Open
+			case gapTP:
+				triggerReason = "take_profit"
+				triggerPrice = curr.Open
+			case stopHit:
+				triggerReason = "stop_loss"
+				triggerPrice = bracket.StopLoss
+			case tpHit:
+				triggerReason = "take_profit"
+				triggerPrice = bracket.TakeProfit
+			}
+		} else {
+			gapStop := bracket.StopLoss > 0 && curr.Open > 0 && curr.Open >= bracket.StopLoss
+			gapTP := bracket.TakeProfit > 0 && curr.Open > 0 && curr.Open <= bracket.TakeProfit
+			stopHit := bracket.StopLoss > 0 && curr.High > 0 && curr.High >= bracket.StopLoss
+			tpHit := bracket.TakeProfit > 0 && curr.Low > 0 && curr.Low <= bracket.TakeProfit
+			switch {
+			case gapStop:
+				triggerReason = "stop_loss"
+				triggerPrice = curr.Open
+			case gapTP:
+				triggerReason = "take_profit"
+				triggerPrice = curr.Open
+			case stopHit:
+				triggerReason = "stop_loss"
+				triggerPrice = bracket.StopLoss
+			case tpHit:
+				triggerReason = "take_profit"
+				triggerPrice = bracket.TakeProfit
+			}
+		}
+
+		if triggerReason == "" || triggerPrice <= 0 {
+			continue
+		}
+
+		closeQty := pos.Quantity
+		realized, fee, execPrice, err := r.account.Close(pos.Symbol, pos.Side, closeQty, triggerPrice)
+		if err != nil {
+			return nil, nil, fmt.Errorf("protection close %s %s failed: %w", pos.Symbol, pos.Side, err)
+		}
+
+		action := "close_long"
+		slippage := triggerPrice - execPrice
+		if pos.Side == "short" {
+			action = "close_short"
+			slippage = execPrice - triggerPrice
+		}
+
+		events = append(events, TradeEvent{
+			Timestamp:     ts,
+			Symbol:        pos.Symbol,
+			Action:        action,
+			Side:          pos.Side,
+			Reasoning:     "triggered by protective order",
+			Quantity:      closeQty,
+			Price:         execPrice,
+			StopLoss:      bracket.StopLoss,
+			TakeProfit:    bracket.TakeProfit,
+			Fee:           fee,
+			Slippage:      slippage,
+			OrderValue:    execPrice * closeQty,
+			RealizedPnL:   realized - fee,
+			Leverage:      pos.Leverage,
+			Cycle:         cycle,
+			PositionAfter: 0,
+			Note:          triggerReason,
+		})
+		logs = append(logs, fmt.Sprintf("Protection trigger: %s %s %s @ %.4f (bar H/L: %.4f / %.4f)",
+			pos.Symbol, pos.Side, triggerReason, execPrice, curr.High, curr.Low))
+		r.clearPositionBracket(pos.Symbol, pos.Side)
+	}
+
+	return events, logs, nil
+}
+
 func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float64, ts int64, cycle int) (store.DecisionAction, []TradeEvent, string, error) {
 	action := strings.ToLower(strings.TrimSpace(dec.Action))
 	symbol := strings.ToUpper(strings.TrimSpace(dec.Symbol))
@@ -1698,14 +1899,16 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 
 	usedLeverage := r.resolveLeverage(dec.Leverage, symbol)
 	actionRecord := store.DecisionAction{
-		Action:     dec.Action,
-		Symbol:     symbol,
-		Leverage:   usedLeverage,
-		StopLoss:   dec.StopLoss,
-		TakeProfit: dec.TakeProfit,
-		Confidence: dec.Confidence,
-		Reasoning:  dec.Reasoning,
-		Timestamp:  time.UnixMilli(ts).UTC(),
+		Action:          dec.Action,
+		Symbol:          symbol,
+		Leverage:        usedLeverage,
+		EntryPrice:      dec.EntryPrice,
+		PositionSizeUSD: dec.PositionSizeUSD,
+		StopLoss:        dec.StopLoss,
+		TakeProfit:      dec.TakeProfit,
+		Confidence:      dec.Confidence,
+		Reasoning:       dec.Reasoning,
+		Timestamp:       time.UnixMilli(ts).UTC(),
 	}
 
 	if isOpenAction(dec.Action) {
@@ -1769,10 +1972,16 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 		return actionRecord, nil, "", fmt.Errorf("price unavailable for %s (found=%v, price=%.4f)", symbol, ok, basePrice)
 	}
 	fillPrice := r.executionPrice(symbol, basePrice, ts)
+	riskControl := r.riskControlConfig()
 	isGridMode := r.isGridBacktestStrategy()
 
 	switch dec.Action {
 	case "open_long":
+		if shouldSkipByPriceDeviation(dec.EntryPrice, fillPrice, riskControl.EffectivePriceDeviationLimitPct()) {
+			msg := fmt.Sprintf("skip open_long: entry deviation too high (ai=%.6f fill=%.6f limit=%.2f%%)",
+				dec.EntryPrice, fillPrice, riskControl.EffectivePriceDeviationLimitPct())
+			return actionRecord, nil, msg, nil
+		}
 		qty := r.determineOpenQuantity(dec, "long", basePrice, isGridMode)
 		if qty <= 0 {
 			if isGridMode {
@@ -1805,9 +2014,71 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Cycle:         cycle,
 			PositionAfter: pos.Quantity,
 		}
-		return actionRecord, []TradeEvent{trade}, "", nil
+		trades := []TradeEvent{trade}
+		logEntry := ""
+
+		if riskControl.EffectivePostFillRRRecheckEnabled() {
+			minRR := effectiveMinRiskRewardRatio(riskControl.MinRiskRewardRatio)
+			threshold := minRR - riskControl.EffectivePostFillRRTolerance()
+			if threshold < 0 {
+				threshold = 0
+			}
+			rr, riskPct, rewardPct, ok := store.CalculateRiskReward(dec.Action, execPrice, dec.StopLoss, dec.TakeProfit)
+			if !ok || rr < threshold {
+				onFail := riskControl.EffectivePostFillRROnFail()
+				logEntry = fmt.Sprintf("post-fill RR check failed: rr=%.2f threshold=%.2f risk=%.2f%% reward=%.2f%% action=%s",
+					rr, threshold, riskPct, rewardPct, onFail)
+				switch onFail {
+				case store.PostFillRROnFailAdjustTP:
+					if newTP, adjusted := store.AdjustTakeProfitForMinRR(dec.Action, execPrice, dec.StopLoss, minRR); adjusted && newTP > 0 {
+						dec.TakeProfit = newTP
+						actionRecord.TakeProfit = newTP
+						trades[0].TakeProfit = newTP
+						logEntry = logEntry + fmt.Sprintf("; adjusted tp=%.6f", newTP)
+					}
+				case store.PostFillRROnFailCloseImmediately:
+					realized, closeFee, closePrice, closeErr := r.account.Close(symbol, "long", qty, execPrice)
+					if closeErr != nil {
+						return actionRecord, trades, "", closeErr
+					}
+					closeTrade := TradeEvent{
+						Timestamp:     ts,
+						Symbol:        symbol,
+						Action:        "close_long",
+						Side:          "long",
+						Reasoning:     "post-fill RR guard close_immediately",
+						Quantity:      qty,
+						Price:         closePrice,
+						StopLoss:      dec.StopLoss,
+						TakeProfit:    dec.TakeProfit,
+						Fee:           closeFee,
+						Slippage:      execPrice - closePrice,
+						OrderValue:    closePrice * qty,
+						RealizedPnL:   realized - closeFee,
+						Leverage:      pos.Leverage,
+						Cycle:         cycle,
+						PositionAfter: r.remainingPosition(symbol, "long"),
+					}
+					trades = append(trades, closeTrade)
+					logEntry = logEntry + "; closed immediately"
+					r.clearPositionBracket(symbol, "long")
+				case store.PostFillRROnFailAlertOnly:
+					logEntry = logEntry + "; alert_only"
+				}
+			}
+		}
+
+		if r.remainingPosition(symbol, "long") > 0 {
+			r.setPositionBracket(symbol, "long", dec.StopLoss, dec.TakeProfit)
+		}
+		return actionRecord, trades, logEntry, nil
 
 	case "open_short":
+		if shouldSkipByPriceDeviation(dec.EntryPrice, fillPrice, riskControl.EffectivePriceDeviationLimitPct()) {
+			msg := fmt.Sprintf("skip open_short: entry deviation too high (ai=%.6f fill=%.6f limit=%.2f%%)",
+				dec.EntryPrice, fillPrice, riskControl.EffectivePriceDeviationLimitPct())
+			return actionRecord, nil, msg, nil
+		}
 		qty := r.determineOpenQuantity(dec, "short", basePrice, isGridMode)
 		if qty <= 0 {
 			if isGridMode {
@@ -1840,7 +2111,64 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Cycle:         cycle,
 			PositionAfter: pos.Quantity,
 		}
-		return actionRecord, []TradeEvent{trade}, "", nil
+		trades := []TradeEvent{trade}
+		logEntry := ""
+
+		if riskControl.EffectivePostFillRRRecheckEnabled() {
+			minRR := effectiveMinRiskRewardRatio(riskControl.MinRiskRewardRatio)
+			threshold := minRR - riskControl.EffectivePostFillRRTolerance()
+			if threshold < 0 {
+				threshold = 0
+			}
+			rr, riskPct, rewardPct, ok := store.CalculateRiskReward(dec.Action, execPrice, dec.StopLoss, dec.TakeProfit)
+			if !ok || rr < threshold {
+				onFail := riskControl.EffectivePostFillRROnFail()
+				logEntry = fmt.Sprintf("post-fill RR check failed: rr=%.2f threshold=%.2f risk=%.2f%% reward=%.2f%% action=%s",
+					rr, threshold, riskPct, rewardPct, onFail)
+				switch onFail {
+				case store.PostFillRROnFailAdjustTP:
+					if newTP, adjusted := store.AdjustTakeProfitForMinRR(dec.Action, execPrice, dec.StopLoss, minRR); adjusted && newTP > 0 {
+						dec.TakeProfit = newTP
+						actionRecord.TakeProfit = newTP
+						trades[0].TakeProfit = newTP
+						logEntry = logEntry + fmt.Sprintf("; adjusted tp=%.6f", newTP)
+					}
+				case store.PostFillRROnFailCloseImmediately:
+					realized, closeFee, closePrice, closeErr := r.account.Close(symbol, "short", qty, execPrice)
+					if closeErr != nil {
+						return actionRecord, trades, "", closeErr
+					}
+					closeTrade := TradeEvent{
+						Timestamp:     ts,
+						Symbol:        symbol,
+						Action:        "close_short",
+						Side:          "short",
+						Reasoning:     "post-fill RR guard close_immediately",
+						Quantity:      qty,
+						Price:         closePrice,
+						StopLoss:      dec.StopLoss,
+						TakeProfit:    dec.TakeProfit,
+						Fee:           closeFee,
+						Slippage:      closePrice - execPrice,
+						OrderValue:    closePrice * qty,
+						RealizedPnL:   realized - closeFee,
+						Leverage:      pos.Leverage,
+						Cycle:         cycle,
+						PositionAfter: r.remainingPosition(symbol, "short"),
+					}
+					trades = append(trades, closeTrade)
+					logEntry = logEntry + "; closed immediately"
+					r.clearPositionBracket(symbol, "short")
+				case store.PostFillRROnFailAlertOnly:
+					logEntry = logEntry + "; alert_only"
+				}
+			}
+		}
+
+		if r.remainingPosition(symbol, "short") > 0 {
+			r.setPositionBracket(symbol, "short", dec.StopLoss, dec.TakeProfit)
+		}
+		return actionRecord, trades, logEntry, nil
 
 	case "close_long":
 		qty := r.determineCloseQuantity(symbol, "long", dec)
@@ -1872,6 +2200,9 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Leverage:      posLev,
 			Cycle:         cycle,
 			PositionAfter: r.remainingPosition(symbol, "long"),
+		}
+		if r.remainingPosition(symbol, "long") <= 0 {
+			r.clearPositionBracket(symbol, "long")
 		}
 		return actionRecord, []TradeEvent{trade}, "", nil
 
@@ -1905,6 +2236,9 @@ func (r *Runner) executeDecision(dec kernel.Decision, priceMap map[string]float6
 			Leverage:      posLev,
 			Cycle:         cycle,
 			PositionAfter: r.remainingPosition(symbol, "short"),
+		}
+		if r.remainingPosition(symbol, "short") <= 0 {
+			r.clearPositionBracket(symbol, "short")
 		}
 		return actionRecord, []TradeEvent{trade}, "", nil
 
@@ -2083,10 +2417,25 @@ func (r *Runner) determineQuantity(dec kernel.Decision, price float64) float64 {
 		leverage = 5
 	}
 
-	// Calculate available margin headroom by configured max margin usage.
+	// Calculate margin headroom by configured max margin usage against total equity.
+	// This matches the intended semantics: total margin used / equity <= max_margin_usage.
 	availableCash := r.account.Cash()
-	maxMarginToUse := availableCash * maxMarginUsage
-	maxPositionValue := maxMarginToUse * float64(leverage)
+	currentMarginUsed := r.totalMarginUsed()
+	maxAllowedMargin := equity * maxMarginUsage
+	marginHeadroom := maxAllowedMargin - currentMarginUsed
+	if marginHeadroom <= 0 {
+		logger.Infof("Backtest: rejecting %s position, no margin headroom (used %.2f / allowed %.2f)",
+			dec.Symbol, currentMarginUsed, maxAllowedMargin)
+		return 0
+	}
+	if marginHeadroom > availableCash {
+		marginHeadroom = availableCash
+	}
+	if marginHeadroom <= 0 {
+		logger.Infof("Backtest: rejecting %s position, no available cash headroom", dec.Symbol)
+		return 0
+	}
+	maxPositionValue := marginHeadroom * float64(leverage)
 
 	sizeUSD := dec.PositionSizeUSD
 	if sizeUSD <= 0 {
@@ -2108,8 +2457,8 @@ func (r *Runner) determineQuantity(dec kernel.Decision, price float64) float64 {
 
 	// Cap position size to what we can actually afford.
 	if sizeUSD > maxPositionValue {
-		logger.Infof("Backtest: capping position from %.2f to %.2f (available margin: %.2f, leverage: %dx)",
-			sizeUSD, maxPositionValue, maxMarginToUse, leverage)
+		logger.Infof("Backtest: capping position from %.2f to %.2f (margin headroom: %.2f, leverage: %dx)",
+			sizeUSD, maxPositionValue, marginHeadroom, leverage)
 		sizeUSD = maxPositionValue
 	}
 
@@ -2342,6 +2691,117 @@ func (r *Runner) snapshotForCheckpoint(state BacktestState) []PositionSnapshot {
 	return res
 }
 
+func (r *Runner) atrStopConfig() (bool, float64) {
+	cfg := r.strategyEngine.GetConfig()
+	if cfg == nil {
+		return false, 0
+	}
+	rc := cfg.RiskControl
+	if !rc.ATRStopEnabled {
+		return false, 0
+	}
+	multiplier := rc.ATRStopMultiplier
+	if multiplier <= 0 {
+		multiplier = 1.5
+	}
+	return true, multiplier
+}
+
+func resolveBacktestATR14(data *market.Data) float64 {
+	if data == nil {
+		return 0
+	}
+	if data.IntradaySeries != nil && data.IntradaySeries.ATR14 > 0 {
+		return data.IntradaySeries.ATR14
+	}
+	if data.LongerTermContext != nil {
+		if data.LongerTermContext.ATR14 > 0 {
+			return data.LongerTermContext.ATR14
+		}
+		if data.LongerTermContext.ATR3 > 0 {
+			return data.LongerTermContext.ATR3
+		}
+	}
+	return 0
+}
+
+func (r *Runner) checkATRVolatilityStops(ts int64, marketData map[string]*market.Data, priceMap map[string]float64, cycle int) ([]TradeEvent, []string, error) {
+	enabled, multiplier := r.atrStopConfig()
+	if !enabled {
+		return nil, nil, nil
+	}
+
+	positions := append([]*position(nil), r.account.Positions()...)
+	events := make([]TradeEvent, 0)
+	logs := make([]string, 0)
+
+	for _, pos := range positions {
+		if pos == nil || pos.Quantity <= 0 {
+			continue
+		}
+		price := priceMap[pos.Symbol]
+		if price <= 0 {
+			price = pos.EntryPrice
+		}
+		atr := resolveBacktestATR14(marketData[pos.Symbol])
+		if atr <= 0 {
+			continue
+		}
+
+		stopDistance := atr * multiplier
+		stopPrice := 0.0
+		triggered := false
+		if pos.Side == "long" {
+			stopPrice = pos.EntryPrice - stopDistance
+			triggered = price <= stopPrice
+		} else {
+			stopPrice = pos.EntryPrice + stopDistance
+			triggered = price >= stopPrice
+		}
+		if !triggered {
+			continue
+		}
+
+		closeQty := pos.Quantity
+		execRefPrice := r.executionPrice(pos.Symbol, price, ts)
+		realized, fee, execPrice, err := r.account.Close(pos.Symbol, pos.Side, closeQty, execRefPrice)
+		if err != nil {
+			return nil, nil, fmt.Errorf("atr stop close %s %s failed: %w", pos.Symbol, pos.Side, err)
+		}
+
+		action := "close_long"
+		slippage := price - execPrice
+		if pos.Side == "short" {
+			action = "close_short"
+			slippage = execPrice - price
+		}
+
+		events = append(events, TradeEvent{
+			Timestamp:     ts,
+			Symbol:        pos.Symbol,
+			Action:        action,
+			Side:          pos.Side,
+			Reasoning:     "atr volatility stop",
+			Quantity:      closeQty,
+			Price:         execPrice,
+			StopLoss:      stopPrice,
+			Fee:           fee,
+			Slippage:      slippage,
+			OrderValue:    execPrice * closeQty,
+			RealizedPnL:   realized - fee,
+			Leverage:      pos.Leverage,
+			Cycle:         cycle,
+			PositionAfter: 0,
+			Note:          "atr_stop",
+		})
+		logs = append(logs, fmt.Sprintf("ATR stop triggered: %s %s @ %.4f (entry %.4f, atr %.4f, k %.2f, stop %.4f)",
+			pos.Symbol, pos.Side, execPrice, pos.EntryPrice, atr, multiplier, stopPrice))
+		r.clearPositionBracket(pos.Symbol, pos.Side)
+	}
+
+	return events, logs, nil
+}
+
 func (r *Runner) checkLiquidation(ts int64, priceMap map[string]float64, cycle int) ([]TradeEvent, string, error) {
 	positions := append([]*position(nil), r.account.Positions()...)
 	events := make([]TradeEvent, 0)
@@ -2392,6 +2852,7 @@ func (r *Runner) checkLiquidation(ts int64, priceMap map[string]float64, cycle i
 			Note:            fmt.Sprintf("forced liquidation at %.4f", finalPrice),
 		}
 		events = append(events, evt)
+		r.clearPositionBracket(pos.Symbol, pos.Side)
 	}
 
 	if len(events) == 0 {
@@ -2487,6 +2948,7 @@ func (r *Runner) closeAllPositions(note string) error {
 			PositionAfter: 0,
 			Note:          note,
 		})
+		r.clearPositionBracket(pos.Symbol, pos.Side)
 	}
 
 	if len(events) == 0 {
@@ -2564,11 +3026,13 @@ func (r *Runner) closeSinglePosition(symbol, side, note string) error {
 	}
 	cycle := snapshot.DecisionCycle
 
-	priceMap := make(map[string]float64, 1)
+	priceMap := make(map[string]float64, len(snapshot.Positions)+len(r.cfg.Symbols))
 	if ts > 0 {
 		if marketData, _, err := r.feed.BuildMarketData(ts); err == nil {
-			if data := marketData[targetSymbol]; data != nil && data.CurrentPrice > 0 {
-				priceMap[targetSymbol] = data.CurrentPrice
+			for symbol, data := range marketData {
+				if data != nil && data.CurrentPrice > 0 {
+					priceMap[symbol] = data.CurrentPrice
+				}
 			}
 		}
 	}
@@ -2607,11 +3071,22 @@ func (r *Runner) closeSinglePosition(symbol, side, note string) error {
 		PositionAfter: 0,
 		Note:          note,
 	}
+	r.clearPositionBracket(target.Symbol, target.Side)
 	if err := appendTradeEvent(r.cfg.RunID, evt); err != nil {
 		return err
 	}
 	r.recordTradeEventForContext(evt)
 	r.notifyTradeSignal(evt, snapshot.Equity)
+
+	// Keep remaining position valuations stable even if market data for some symbol is missing.
+	for _, pos := range r.account.Positions() {
+		if pos == nil || pos.Quantity <= 0 {
+			continue
+		}
+		if priceMap[pos.Symbol] <= 0 {
+			priceMap[pos.Symbol] = pos.EntryPrice
+		}
+	}
 
 	equity, unrealized, _ := r.account.TotalEquity(priceMap)
 	r.stateMu.Lock()
@@ -3056,6 +3531,7 @@ func (r *Runner) applyCheckpoint(ckpt *Checkpoint) error {
 		return fmt.Errorf("checkpoint is nil")
 	}
 	r.account.RestoreFromSnapshots(ckpt.Cash, ckpt.RealizedPnL, ckpt.Positions)
+	r.positionBrackets = make(map[string]positionBracket)
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 	r.state.BarIndex = ckpt.BarIndex

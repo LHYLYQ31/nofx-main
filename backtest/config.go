@@ -332,6 +332,16 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 			MinPositionSize:              12,
 			MinRiskRewardRatio:           3.0,
 			MinConfidence:                75,
+			ATRStopEnabled:               false,
+			ATRStopMultiplier:            1.5,
+			PriceDeviationLimitPct:       0.35,
+			PostFillRRRecheckEnabled:     true,
+			PostFillRRTolerance:          0.10,
+			PostFillRROnFail:             store.PostFillRROnFailAdjustTP,
+			SLTPRetryCount:               3,
+			SLTPRetryIntervalMs:          1000,
+			OnSLFail:                     store.SLTPFailActionCloseImmediately,
+			OnTPFail:                     store.SLTPFailActionKeepWithSLRetry,
 		},
 	}
 }

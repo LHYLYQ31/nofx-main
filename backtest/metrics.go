@@ -3,6 +3,7 @@ package backtest
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -91,9 +92,10 @@ func maxDrawdown(points []EquityPoint, state *BacktestState) float64 {
 	return maxDD
 }
 
-// sharpeRatio calculates the Sharpe ratio from equity points.
-// Uses sample standard deviation (n-1) and annualizes assuming ~252 trading days.
-// Returns math.NaN() for edge cases (insufficient data, zero variance).
+// sharpeRatio calculates the annualized Sharpe ratio from equity points.
+// Uses sample standard deviation (n-1) and derives the annualization factor
+// from the median spacing between consecutive equity points, assuming a 24/7
+// crypto market (365*24h). Risk-free rate is assumed zero.
 func sharpeRatio(points []EquityPoint) float64 {
 	// Need at least 10 data points for meaningful Sharpe calculation
 	const minDataPoints = 10
@@ -140,15 +142,53 @@ func sharpeRatio(points []EquityPoint) float64 {
 		return 0
 	}
 
-	// Calculate Sharpe ratio (assuming risk-free rate = 0 for crypto)
-	// Annualize by multiplying by sqrt(periods per year)
-	// Assuming each equity point represents ~1 hour, we have ~8760 periods/year
-	// For conservative estimate, use sqrt(252) as if daily returns
-	periodsPerYear := 252.0
-	annualizationFactor := math.Sqrt(periodsPerYear)
-
-	sharpe := (mean / std) * annualizationFactor
+	periodsPerYear := equityPeriodsPerYear(points)
+	sharpe := (mean / std) * math.Sqrt(periodsPerYear)
 	return sharpe
+}
+
+// equityPeriodsPerYear derives the annualization factor from the median gap
+// between consecutive equity point timestamps (ms). Falls back to an hourly
+// assumption (8760) when timestamps are unusable.
+//
+// Clamped to [365, 525600] — i.e. daily to one-minute sampling — to protect
+// Sharpe from pathological gaps (e.g. overnight pauses) while still matching
+// 24/7 crypto conventions.
+func equityPeriodsPerYear(points []EquityPoint) float64 {
+	const msPerYear = 365.0 * 24.0 * 3600.0 * 1000.0
+	const fallbackHourly = 365.0 * 24.0
+	const minPPY = 365.0      // daily
+	const maxPPY = 365.0 * 24.0 * 60.0 // per-minute
+
+	if len(points) < 2 {
+		return fallbackHourly
+	}
+
+	deltas := make([]int64, 0, len(points)-1)
+	for i := 1; i < len(points); i++ {
+		d := points[i].Timestamp - points[i-1].Timestamp
+		if d > 0 {
+			deltas = append(deltas, d)
+		}
+	}
+	if len(deltas) == 0 {
+		return fallbackHourly
+	}
+
+	sort.Slice(deltas, func(i, j int) bool { return deltas[i] < deltas[j] })
+	medianMs := float64(deltas[len(deltas)/2])
+	if medianMs <= 0 {
+		return fallbackHourly
+	}
+
+	ppy := msPerYear / medianMs
+	if ppy < minPPY {
+		return minPPY
+	}
+	if ppy > maxPPY {
+		return maxPPY
+	}
+	return ppy
 }
 
 func fillTradeMetrics(metrics *Metrics, events []TradeEvent) {

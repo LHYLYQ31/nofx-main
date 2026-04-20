@@ -161,6 +161,11 @@ func (acc *BacktestAccount) TotalEquity(priceMap map[string]float64) (float64, f
 	perSymbol := make(map[string]float64)
 	for _, pos := range acc.positions {
 		price := priceMap[pos.Symbol]
+		// Defensive fallback: if mark price is missing/invalid, use entry price.
+		// This prevents accidental extreme equity distortion from zero prices.
+		if price <= 0 {
+			price = pos.EntryPrice
+		}
 		pnl := unrealizedPnL(pos, price)
 		unrealized += pnl
 		margin += pos.Margin
