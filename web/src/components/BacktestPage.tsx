@@ -237,11 +237,19 @@ function StatCard({
 }
 
 // Progress Ring Component
+function formatProgressPct(progress: number): string {
+  if (!Number.isFinite(progress) || progress <= 0) return '0.00'
+  if (progress < 1) return progress.toFixed(2)
+  if (progress < 10) return progress.toFixed(1)
+  return progress.toFixed(0)
+}
+
 function ProgressRing({ progress, size = 120 }: { progress: number; size?: number }) {
   const strokeWidth = 8
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
-  const offset = circumference - (progress / 100) * circumference
+  const safeProgress = Math.max(0, Math.min(100, progress))
+  const offset = circumference - (safeProgress / 100) * circumference
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -270,7 +278,7 @@ function ProgressRing({ progress, size = 120 }: { progress: number; size?: numbe
       </svg>
       <div className="absolute inset-0 flex items-center justify-center flex-col">
         <span className="text-2xl font-bold" style={{ color: '#F0B90B' }}>
-          {progress.toFixed(0)}%
+          {formatProgressPct(progress)}%
         </span>
         <span className="text-xs" style={{ color: '#848E9C' }}>
           %
@@ -2383,7 +2391,7 @@ export function BacktestPage() {
                       </div>
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-xs" style={{ color: '#848E9C' }}>
-                          {run.summary.progress_pct.toFixed(0)}% | {formatBacktestDays(run.start_ts, run.end_ts)} | ${run.summary.equity_last.toFixed(0)}
+                          {formatProgressPct(run.summary.progress_pct)}% | {formatBacktestDays(run.start_ts, run.end_ts)} | ${run.summary.equity_last.toFixed(0)}
                         </span>
                         <span className="text-[11px] truncate max-w-[50%]" style={{ color: '#848E9C' }}>
                           币种: {formatRunSymbols(run.symbols)}

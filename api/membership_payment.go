@@ -179,7 +179,13 @@ func (s *Server) handleCreateInfiniOrder(c *gin.Context) {
 		return
 	}
 
-	if err := s.store.PaymentOrder().UpdateCreateResponse(order.ID, resp.OrderID, resp.CheckoutURL, store.PaymentOrderStatusCreated, raw, nil); err != nil {
+	expiresAt := unixTimestampToUTCPtr(resp.ExpiresAt)
+	if expiresAt == nil && req.ExpiresInSec > 0 {
+		fallback := time.Now().UTC().Add(time.Duration(req.ExpiresInSec) * time.Second)
+		expiresAt = &fallback
+	}
+
+	if err := s.store.PaymentOrder().UpdateCreateResponse(order.ID, resp.OrderID, resp.CheckoutURL, store.PaymentOrderStatusCreated, raw, expiresAt); err != nil {
 		SafeInternalError(c, "Update payment order", err)
 		return
 	}
@@ -234,7 +240,11 @@ func (s *Server) handleGetPaymentOrder(c *gin.Context) {
 			queryResp, raw, queryErr := client.QueryOrder(c.Request.Context(), order.ProviderOrderID)
 			if queryErr == nil {
 				mapped := mapInfiniOrderStatus(queryResp.Status, "")
-				_ = s.store.PaymentOrder().UpdateStatus(order.ID, mapped, raw)
+				expiresAt := unixTimestampToUTCPtr(queryResp.ExpiresAt)
+				if mapped == store.PaymentOrderStatusPending && expiresAt != nil && time.Now().UTC().After(expiresAt.UTC()) {
+					mapped = store.PaymentOrderStatusExpired
+				}
+				_ = s.store.PaymentOrder().UpdateStatusWithExpiresAt(order.ID, mapped, raw, expiresAt)
 				if mapped == store.PaymentOrderStatusPaid {
 					_ = s.activateMembershipByOrder(c.Request.Context(), order.ID)
 				}

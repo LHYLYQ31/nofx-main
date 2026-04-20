@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { withBasePath } from '../utils/assetPath'
 
 interface IconProps {
   width?: number
@@ -6,7 +7,6 @@ interface IconProps {
   className?: string
 }
 
-// 本地图标路径映射
 const ICON_PATHS: Record<string, string> = {
   binance: '/exchange-icons/binance.jpg',
   bybit: '/exchange-icons/bybit.png',
@@ -20,38 +20,6 @@ const ICON_PATHS: Record<string, string> = {
   indodax: '/exchange-icons/indodax.png',
 }
 
-// 通用图标组件
-const ExchangeImage: React.FC<IconProps & { src: string; alt: string }> = ({
-  width = 24,
-  height = 24,
-  className,
-  src,
-  alt,
-}) => (
-  <div
-    className={className}
-    style={{
-      width,
-      height,
-      borderRadius: 6,
-      overflow: 'hidden',
-      flexShrink: 0,
-      background: '#2B3139',
-    }}
-  >
-    <img
-      src={src}
-      alt={alt}
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
-      }}
-    />
-  </div>
-)
-
-// Fallback 图标
 const FallbackIcon: React.FC<IconProps & { label: string }> = ({
   width = 24,
   height = 24,
@@ -78,11 +46,46 @@ const FallbackIcon: React.FC<IconProps & { label: string }> = ({
   </div>
 )
 
-// 获取交易所图标的函数
-export const getExchangeIcon = (
-  exchangeType: string,
-  props: IconProps = {}
-) => {
+const ExchangeImage: React.FC<IconProps & { src: string; alt: string }> = ({
+  width = 24,
+  height = 24,
+  className,
+  src,
+  alt,
+}) => {
+  const [hasError, setHasError] = useState(false)
+
+  if (hasError) {
+    return <FallbackIcon width={width} height={height} className={className} label={alt} />
+  }
+
+  return (
+    <div
+      className={className}
+      style={{
+        width,
+        height,
+        borderRadius: 6,
+        overflow: 'hidden',
+        flexShrink: 0,
+        background: '#2B3139',
+      }}
+    >
+      <img
+        src={src}
+        alt={alt}
+        onError={() => setHasError(true)}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+        }}
+      />
+    </div>
+  )
+}
+
+export const getExchangeIcon = (exchangeType: string, props: IconProps = {}) => {
   const lowerType = exchangeType.toLowerCase()
   const type = lowerType.includes('binance')
     ? 'binance'
@@ -114,7 +117,7 @@ export const getExchangeIcon = (
 
   const path = ICON_PATHS[type]
   if (path) {
-    return <ExchangeImage {...iconProps} src={path} alt={type} />
+    return <ExchangeImage {...iconProps} src={withBasePath(path)} alt={type} />
   }
 
   return <FallbackIcon {...iconProps} label={type} />

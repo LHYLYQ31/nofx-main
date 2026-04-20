@@ -1,4 +1,4 @@
-import { Shield, AlertTriangle } from 'lucide-react'
+﻿import { Shield, AlertTriangle } from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 
 interface RiskControlEditorProps {
@@ -42,6 +42,27 @@ export function RiskControlEditor({
       minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT' },
       minConfidence: { zh: '最小信心度', en: 'Min Confidence' },
       minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry' },
+      atrVolatilityStop: { zh: 'ATR Volatility Stop', en: 'ATR Volatility Stop' },
+      atrVolatilityStopDesc: { zh: 'Code-enforced adaptive stop-loss based on ATR', en: 'Code-enforced adaptive stop-loss based on ATR' },
+      atrStopEnabled: { zh: 'Enable ATR Stop', en: 'Enable ATR Stop' },
+      atrStopMultiplier: { zh: 'ATR Multiplier', en: 'ATR Multiplier' },
+      atrStopMultiplierDesc: { zh: 'Stop distance = ATR(14) x multiplier', en: 'Stop distance = ATR(14) x multiplier' },
+      executionGuards: { zh: '执行防护（通用）', en: 'Execution Guards (Generic)' },
+      executionGuardsDesc: { zh: '跨策略通用执行风控：价差门限、成交后二次RR、SL/TP失败降级', en: 'Strategy-agnostic execution risk guards' },
+      priceDeviationLimitPct: { zh: '价差门限(%)', en: 'Price Deviation Limit (%)' },
+      priceDeviationLimitPctDesc: { zh: '市场价与 AI entry_price 偏差超过该值时，跳过开仓', en: 'Skip entry when market deviates too far from AI entry_price' },
+      postFillRRRecheckEnabled: { zh: '启用成交后二次RR校验', en: 'Enable Post-Fill RR Recheck' },
+      postFillRRTolerance: { zh: 'RR容忍度', en: 'RR Tolerance' },
+      postFillRRToleranceDesc: { zh: '有效阈值 = 最小RR - 容忍度', en: 'Effective threshold = Min RR - tolerance' },
+      postFillRROnFail: { zh: '二次RR失败处理', en: 'On Post-Fill RR Fail' },
+      sltpRetryCount: { zh: 'SL/TP 重试次数', en: 'SL/TP Retry Count' },
+      sltpRetryIntervalMs: { zh: 'SL/TP 重试间隔(ms)', en: 'SL/TP Retry Interval (ms)' },
+      onSLFail: { zh: '止损挂单失败处理', en: 'On SL Placement Fail' },
+      onTPFail: { zh: '止盈挂单失败处理', en: 'On TP Placement Fail' },
+      actionAdjustTP: { zh: '自动调整止盈', en: 'Adjust TP' },
+      actionCloseImmediately: { zh: '立即平仓', en: 'Close Immediately' },
+      actionAlertOnly: { zh: '仅告警', en: 'Alert Only' },
+      actionKeepWithSLRetry: { zh: '保留仓位并继续补挂', en: 'Keep Position and Retry TP' },
     }
     return translations[key]?.[language] || key
   }
@@ -310,6 +331,229 @@ export function RiskControlEditor({
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
               </span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ATR Volatility Stop */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <AlertTriangle className="w-5 h-5" style={{ color: '#F0B90B' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('atrVolatilityStop')}
+          </h3>
+        </div>
+
+        <div
+          className="p-4 rounded-lg"
+          style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+        >
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>
+            {t('atrVolatilityStopDesc')}
+          </p>
+
+          <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={config.atr_stop_enabled ?? false}
+              onChange={(e) => updateField('atr_stop_enabled', e.target.checked)}
+              disabled={disabled}
+              className="accent-yellow-500"
+            />
+            <span className="text-sm" style={{ color: '#EAECEF' }}>
+              {t('atrStopEnabled')}
+            </span>
+          </label>
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+                {t('atrStopMultiplier')}
+              </label>
+              <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+                {t('atrStopMultiplierDesc')}
+              </p>
+              <input
+                type="range"
+                value={config.atr_stop_multiplier ?? 1.5}
+                onChange={(e) =>
+                  updateField('atr_stop_multiplier', parseFloat(e.target.value) || 1.5)
+                }
+                disabled={disabled || !(config.atr_stop_enabled ?? false)}
+                min={0.5}
+                max={5}
+                step={0.1}
+                className="w-full accent-yellow-500"
+              />
+            </div>
+            <input
+              type="number"
+              value={config.atr_stop_multiplier ?? 1.5}
+              onChange={(e) =>
+                updateField('atr_stop_multiplier', parseFloat(e.target.value) || 1.5)
+              }
+              disabled={disabled || !(config.atr_stop_enabled ?? false)}
+              min={0.5}
+              max={5}
+              step={0.1}
+              className="w-24 px-3 py-2 rounded"
+              style={{
+                background: '#1E2329',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Execution Guards */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <AlertTriangle className="w-5 h-5" style={{ color: '#F0B90B' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('executionGuards')}
+          </h3>
+        </div>
+        <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
+          {t('executionGuardsDesc')}
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('priceDeviationLimitPct')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('priceDeviationLimitPctDesc')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={config.price_deviation_limit_pct ?? 0.35}
+                onChange={(e) => updateField('price_deviation_limit_pct', parseFloat(e.target.value) || 0.35)}
+                disabled={disabled}
+                min={0}
+                max={5}
+                step={0.05}
+                className="w-24 px-3 py-2 rounded"
+                style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+              />
+              <span style={{ color: '#848E9C' }}>%</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.post_fill_rr_recheck_enabled ?? true}
+                onChange={(e) => updateField('post_fill_rr_recheck_enabled', e.target.checked)}
+                disabled={disabled}
+                className="accent-yellow-500"
+              />
+              <span className="text-sm" style={{ color: '#EAECEF' }}>
+                {t('postFillRRRecheckEnabled')}
+              </span>
+            </label>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('postFillRRTolerance')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('postFillRRToleranceDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.post_fill_rr_tolerance ?? 0.1}
+              onChange={(e) => updateField('post_fill_rr_tolerance', parseFloat(e.target.value) || 0.1)}
+              disabled={disabled || !(config.post_fill_rr_recheck_enabled ?? true)}
+              min={0}
+              max={2}
+              step={0.05}
+              className="w-24 px-3 py-2 rounded"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            />
+          </div>
+
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-2" style={{ color: '#EAECEF' }}>
+              {t('postFillRROnFail')}
+            </label>
+            <select
+              value={config.post_fill_rr_on_fail ?? 'adjust_tp'}
+              onChange={(e) => updateField('post_fill_rr_on_fail', e.target.value)}
+              disabled={disabled || !(config.post_fill_rr_recheck_enabled ?? true)}
+              className="w-full px-3 py-2 rounded"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            >
+              <option value="adjust_tp">{t('actionAdjustTP')}</option>
+              <option value="close_immediately">{t('actionCloseImmediately')}</option>
+              <option value="alert_only">{t('actionAlertOnly')}</option>
+            </select>
+          </div>
+
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('sltpRetryCount')}
+            </label>
+            <input
+              type="number"
+              value={config.sltp_retry_count ?? 3}
+              onChange={(e) => updateField('sltp_retry_count', parseInt(e.target.value) || 3)}
+              disabled={disabled}
+              min={0}
+              max={10}
+              step={1}
+              className="w-24 px-3 py-2 rounded mb-3"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            />
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('sltpRetryIntervalMs')}
+            </label>
+            <input
+              type="number"
+              value={config.sltp_retry_interval_ms ?? 1000}
+              onChange={(e) => updateField('sltp_retry_interval_ms', parseInt(e.target.value) || 1000)}
+              disabled={disabled}
+              min={0}
+              max={10000}
+              step={100}
+              className="w-32 px-3 py-2 rounded"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            />
+          </div>
+
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-2" style={{ color: '#EAECEF' }}>
+              {t('onSLFail')}
+            </label>
+            <select
+              value={config.on_sl_fail ?? 'close_immediately'}
+              onChange={(e) => updateField('on_sl_fail', e.target.value)}
+              disabled={disabled}
+              className="w-full px-3 py-2 rounded"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            >
+              <option value="close_immediately">{t('actionCloseImmediately')}</option>
+              <option value="alert_only">{t('actionAlertOnly')}</option>
+            </select>
+          </div>
+
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-2" style={{ color: '#EAECEF' }}>
+              {t('onTPFail')}
+            </label>
+            <select
+              value={config.on_tp_fail ?? 'keep_with_sl_and_retry'}
+              onChange={(e) => updateField('on_tp_fail', e.target.value)}
+              disabled={disabled}
+              className="w-full px-3 py-2 rounded"
+              style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+            >
+              <option value="keep_with_sl_and_retry">{t('actionKeepWithSLRetry')}</option>
+              <option value="close_immediately">{t('actionCloseImmediately')}</option>
+              <option value="alert_only">{t('actionAlertOnly')}</option>
+            </select>
           </div>
         </div>
       </div>

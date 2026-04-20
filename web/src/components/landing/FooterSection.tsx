@@ -1,6 +1,6 @@
 import { Send, ExternalLink } from 'lucide-react'
 import { t, Language } from '../../i18n/translations'
-import { OFFICIAL_LINKS } from '../../constants/branding'
+import { BRANDING, OFFICIAL_LINKS } from '../../constants/branding'
 
 interface FooterSectionProps {
   language: Language
@@ -49,7 +49,7 @@ export default function FooterSection({ language }: FooterSectionProps) {
           {/* Brand */}
           <div className="md:col-span-1">
             <div className="flex items-center gap-3 mb-4">
-              <img src="/icons/logo.jpg" alt="NewMoneyClub Logo" className="w-8 h-8" />
+              <img src={BRANDING.logoSrc} alt={BRANDING.logoAlt} className="w-8 h-8" />
               <span className="text-xl font-bold" style={{ color: '#EAECEF' }}>
                 NewMoneyClub
               </span>

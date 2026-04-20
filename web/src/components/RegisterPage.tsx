@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { getSystemConfig } from '../lib/config'
+import { BRANDING } from '../constants/branding'
 import { DeepVoidBackground } from './DeepVoidBackground'
 import { RegistrationDisabled } from './RegistrationDisabled'
 import { WhitelistFullPage } from './WhitelistFullPage'
@@ -122,7 +123,7 @@ export function RegisterPage() {
           <div className="flex justify-center mb-6">
             <div className="relative">
               <div className="absolute -inset-2 bg-nofx-gold/20 rounded-full blur-xl animate-pulse"></div>
-              <img src="/icons/logo.jpg" alt="NewMoneyClub Logo" className="w-16 h-16 object-contain relative z-10 opacity-90" />
+              <img src={BRANDING.logoSrc} alt={BRANDING.logoAlt} className="w-16 h-16 object-contain relative z-10 opacity-90" />
             </div>
           </div>
           <h1 className="text-3xl font-bold tracking-tighter text-white uppercase mb-2">

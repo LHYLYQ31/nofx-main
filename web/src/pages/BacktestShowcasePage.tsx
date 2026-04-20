@@ -931,6 +931,8 @@ function extractDecisionActions(item: DecisionRecord): DecisionAction[] {
       leverage: numberValue(x.leverage),
       confidence: numberValue(x.confidence),
       price: numberValue(x.price),
+      entry_price: numberValue(x.entry_price),
+      position_size_usd: numberValue(x.position_size_usd),
       order_id: numberValue(x.order_id),
       timestamp: stringValue(x.timestamp),
       success: true,

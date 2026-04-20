@@ -1,10 +1,12 @@
+import { useState } from 'react'
+import { withBasePath } from '../utils/assetPath'
+
 interface IconProps {
   width?: number
   height?: number
   className?: string
 }
 
-// AI model colors for fallback display
 const MODEL_COLORS: Record<string, string> = {
   deepseek: '#4A90E2',
   qwen: '#9B59B6',
@@ -18,50 +20,77 @@ const MODEL_COLORS: Record<string, string> = {
   'blockrun-sol': '#9945FF',
 }
 
-// 获取AI模型图标的函数
-export const getModelIcon = (modelType: string, props: IconProps = {}) => {
-  // 支持完整ID或类型名
-  const type = modelType.includes('_') ? modelType.split('_').pop() : modelType
+const MODEL_ICON_PATHS: Record<string, string> = {
+  deepseek: '/icons/deepseek.svg',
+  qwen: '/icons/qwen.svg',
+  claude: '/icons/claude.svg',
+  kimi: '/icons/kimi.svg',
+  gemini: '/icons/gemini.svg',
+  grok: '/icons/grok.svg',
+  openai: '/icons/openai.svg',
+  minimax: '/icons/minimax.svg',
+  'blockrun-base': '/icons/blockrun.svg',
+  'blockrun-sol': '/icons/blockrun.svg',
+}
 
-  let iconPath: string | null = null
+function normalizeModelType(modelType: string): string {
+  const rawType = modelType.includes('_') ? modelType.split('_').pop() || '' : modelType
+  return rawType.toLowerCase()
+}
 
-  switch (type) {
-    case 'deepseek':
-      iconPath = '/icons/deepseek.svg'
-      break
-    case 'qwen':
-      iconPath = '/icons/qwen.svg'
-      break
-    case 'claude':
-      iconPath = '/icons/claude.svg'
-      break
-    case 'kimi':
-      iconPath = '/icons/kimi.svg'
-      break
-    case 'gemini':
-      iconPath = '/icons/gemini.svg'
-      break
-    case 'grok':
-      iconPath = '/icons/grok.svg'
-      break
-    case 'openai':
-      iconPath = '/icons/openai.svg'
-      break
-    case 'minimax':
-      iconPath = '/icons/minimax.svg'
-      break
-    case 'blockrun-base':
-    case 'blockrun-sol':
-      iconPath = '/icons/blockrun.svg'
-      break
-    default:
-      return null
+function ModelFallback({ type, width = 24, height = 24, className }: { type: string } & IconProps) {
+  return (
+    <div
+      className={className}
+      style={{
+        width,
+        height,
+        borderRadius: '50%',
+        background: MODEL_COLORS[type] || '#60a5fa',
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: Math.max(10, (width || 24) * 0.45),
+        fontWeight: 700,
+      }}
+    >
+      {type[0]?.toUpperCase() || '?'}
+    </div>
+  )
+}
+
+function ModelImage({ type, iconPath, width = 24, height = 24, className }: { type: string; iconPath: string } & IconProps) {
+  const [hasError, setHasError] = useState(false)
+
+  if (hasError) {
+    return <ModelFallback type={type} width={width} height={height} className={className} />
   }
 
   return (
     <img
-      src={iconPath}
+      src={withBasePath(iconPath)}
       alt={`${type} icon`}
+      width={width}
+      height={height}
+      className={className}
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
+export const getModelIcon = (modelType: string, props: IconProps = {}) => {
+  const type = normalizeModelType(modelType)
+  const iconPath = MODEL_ICON_PATHS[type]
+
+  if (!iconPath) {
+    return null
+  }
+
+  return (
+    <ModelImage
+      type={type}
+      iconPath={iconPath}
       width={props.width || 24}
       height={props.height || 24}
       className={props.className}
@@ -69,8 +98,7 @@ export const getModelIcon = (modelType: string, props: IconProps = {}) => {
   )
 }
 
-// 获取模型颜色（用于没有图标时的fallback）
 export const getModelColor = (modelType: string): string => {
-  const type = modelType.includes('_') ? modelType.split('_').pop() : modelType
-  return MODEL_COLORS[type || ''] || '#60a5fa'
+  const type = normalizeModelType(modelType)
+  return MODEL_COLORS[type] || '#60a5fa'
 }

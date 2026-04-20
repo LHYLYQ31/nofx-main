@@ -51,6 +51,8 @@ export interface DecisionAction {
   quantity: number
   leverage: number
   price: number
+  entry_price?: number
+  position_size_usd?: number
   stop_loss?: number      // Stop loss price
   take_profit?: number    // Take profit price
   confidence?: number     // AI confidence (0-100)
@@ -788,6 +790,18 @@ export interface RiskControlConfig {
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
   min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
+  atr_stop_enabled?: boolean;      // Enable ATR volatility stop-loss (CODE ENFORCED)
+  atr_stop_multiplier?: number;    // Stop distance = ATR(14) * multiplier
+
+  // Execution guards (generic)
+  price_deviation_limit_pct?: number;       // Max allowed deviation between AI entry and market/fill (%)
+  post_fill_rr_recheck_enabled?: boolean;   // Recheck RR after fill
+  post_fill_rr_tolerance?: number;          // Allowed RR degradation (absolute)
+  post_fill_rr_on_fail?: string;            // adjust_tp | close_immediately | alert_only
+  sltp_retry_count?: number;                // Retry count for SL/TP placement
+  sltp_retry_interval_ms?: number;          // Retry interval in ms
+  on_sl_fail?: string;                      // close_immediately | alert_only
+  on_tp_fail?: string;                      // keep_with_sl_and_retry | close_immediately | alert_only
 }
 
 // Debate Arena Types

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { DecisionRecord, DecisionAction } from '../types'
 import { t, type Language } from '../i18n/translations'
 
@@ -49,12 +49,53 @@ function getConfidenceColor(confidence: number | undefined): string {
   return '#F6465D'
 }
 
+function extractTagContent(input: string, tag: string): string {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i')
+  const m = input.match(re)
+  return m?.[1]?.trim() || ''
+}
+
+function formatReadableCoT(input: string | undefined): string {
+  if (!input) return ''
+  const normalized = input.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return ''
+
+  const reasoning = extractTagContent(normalized, 'reasoning')
+  const analysis = extractTagContent(normalized, 'analysis')
+  let text = reasoning || analysis || normalized
+
+  text = text
+    .replace(/<decision>[\s\S]*?<\/decision>/gi, '')
+    .replace(/```json[\s\S]*?```/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/^\s*```[^\n]*\n?/gim, '')
+    .replace(/^\s*```\s*$/gim, '')
+    .replace(/<\/?(reasoning|analysis)>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!text) return ''
+  if (/^json$/i.test(text)) return ''
+  if (/^```/.test(text)) return ''
+  if (/^[\[{]/.test(text)) {
+    try {
+      JSON.parse(text)
+      return ''
+    } catch {
+      // non-JSON text, keep rendering
+    }
+  }
+
+  return text
+}
+
 // Single Action Card Component
 function ActionCard({ action, language, onSymbolClick }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void }) {
   const normalizedAction = (action.action || '').toLowerCase()
   const config = ACTION_CONFIG[normalizedAction] || ACTION_CONFIG.wait
   const isLong = normalizedAction.includes('long') || normalizedAction.includes('buy')
   const isOpen = normalizedAction.includes('open') || normalizedAction.startsWith('place_')
+  const displayEntryPrice = action.entry_price && action.entry_price > 0 ? action.entry_price : action.price
 
   return (
     <div
@@ -114,7 +155,7 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
               {t('entryPrice', language)}
             </div>
             <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
-              {formatPrice(action.price)}
+              {formatPrice(displayEntryPrice)}
             </div>
           </div>
 
@@ -126,9 +167,9 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
             <div className="font-mono font-semibold" style={{ color: '#F6465D' }}>
               {formatPrice(action.stop_loss)}
             </div>
-            {action.stop_loss && action.price && (
+            {action.stop_loss && displayEntryPrice && (
               <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                {calcPctChange(action.price, action.stop_loss, isLong)}
+                {calcPctChange(displayEntryPrice, action.stop_loss, isLong)}
               </div>
             )}
           </div>
@@ -141,9 +182,9 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
             <div className="font-mono font-semibold" style={{ color: '#0ECB81' }}>
               {formatPrice(action.take_profit)}
             </div>
-            {action.take_profit && action.price && (
+            {action.take_profit && displayEntryPrice && (
               <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                {calcPctChange(action.price, action.take_profit, isLong)}
+                {calcPctChange(displayEntryPrice, action.take_profit, isLong)}
               </div>
             )}
           </div>
@@ -161,13 +202,13 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
       )}
 
       {/* Risk/Reward Ratio for open positions */}
-      {isOpen && action.stop_loss && action.take_profit && action.price && (
+      {isOpen && action.stop_loss && action.take_profit && displayEntryPrice && (
         <div className="mt-3 pt-3 flex items-center justify-between" style={{ borderTop: '1px solid #2B3139' }}>
           <span className="text-xs" style={{ color: '#848E9C' }}>{t('riskReward', language)}</span>
           <div className="flex items-center gap-2">
             {(() => {
-              const slDist = Math.abs(action.price - action.stop_loss)
-              const tpDist = Math.abs(action.take_profit - action.price)
+              const slDist = Math.abs(displayEntryPrice - action.stop_loss)
+              const tpDist = Math.abs(action.take_profit - displayEntryPrice)
               const ratio = slDist > 0 ? (tpDist / slDist) : 0
               const ratioColor = ratio >= 3 ? '#0ECB81' : ratio >= 2 ? '#F0B90B' : '#F6465D'
               return (
@@ -229,6 +270,10 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
+  const readableCoT = useMemo(() => formatReadableCoT(decision.cot_trace), [decision.cot_trace])
+  const cotFallback = language === 'zh'
+    ? '该轮思维链主要是结构化决策输出，已在上方决策区展示。'
+    : 'This cycle mainly contains structured decision output, already shown in the decision section above.'
 
   // Copy text to clipboard
   const copyToClipboard = async (text: string, label: string) => {
@@ -443,14 +488,14 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
             </button>
             {showCoT && (
               <div
-                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
+                className="mt-2 rounded-lg p-4 text-sm whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto"
                 style={{
                   background: '#0B0E11',
                   border: '1px solid #2B3139',
                   color: '#EAECEF',
                 }}
               >
-                {decision.cot_trace}
+                {readableCoT || cotFallback}
               </div>
             )}
           </div>

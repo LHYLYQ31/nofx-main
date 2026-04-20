@@ -1,5 +1,6 @@
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
+import { BRANDING } from '../constants/branding'
 
 export function RegistrationDisabled() {
   const { language } = useLanguage()
@@ -16,8 +17,8 @@ export function RegistrationDisabled() {
     >
       <div className="text-center max-w-md px-6">
         <img
-          src="/icons/logo.jpg"
-          alt="NewMoneyClub Logo"
+          src={BRANDING.logoSrc}
+          alt={BRANDING.logoAlt}
           className="w-16 h-16 mx-auto mb-4"
         />
         <h1 className="text-2xl font-semibold mb-3">

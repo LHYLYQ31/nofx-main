@@ -1,7 +1,9 @@
-﻿export const BRANDING = {
+import { withBasePath } from '../utils/assetPath'
+
+export const BRANDING = {
   productName: 'NewMoneyClub',
   siteTitle: 'NewMoneyClub - AI Trading Dashboard',
-  logoSrc: '/icons/logo.jpg',
+  logoSrc: withBasePath('/icons/logo.jpg'),
   logoAlt: 'NewMoneyClub Logo',
 } as const
 
@@ -10,4 +12,3 @@ export const OFFICIAL_LINKS = {
   telegram: 'https://t.me/newmoneyclub66',
   github: '',
 }
-

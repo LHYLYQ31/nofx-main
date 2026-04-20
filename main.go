@@ -155,6 +155,14 @@ func main() {
 
 	// Start API server
 	server := api.NewServer(traderManager, st, cryptoService, backtestManager, cfg.APIServerPort)
+	stopPaymentOrderReconciler := server.StartPaymentOrderReconciler(
+		cfg.PaymentReconcileEnabled,
+		time.Duration(cfg.PaymentReconcileIntervalSeconds)*time.Second,
+		time.Duration(cfg.PaymentReconcileStaleMinutes)*time.Minute,
+		cfg.PaymentReconcileBatchSize,
+	)
+	defer stopPaymentOrderReconciler()
+
 	go func() {
 		if err := server.Start(); err != nil {
 			logger.Fatalf("❌ Failed to start API server: %v", err)

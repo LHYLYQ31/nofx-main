@@ -169,14 +169,45 @@ func (s *PaymentOrderStore) UpdateCreateResponse(orderID, providerOrderID, check
 }
 
 func (s *PaymentOrderStore) UpdateStatus(orderID, status, rawLastQuery string) error {
+	return s.UpdateStatusWithExpiresAt(orderID, status, rawLastQuery, nil)
+}
+
+func (s *PaymentOrderStore) UpdateStatusWithExpiresAt(orderID, status, rawLastQuery string, expiresAt *time.Time) error {
 	updates := map[string]interface{}{
 		"status":         normalizePaymentStatus(status),
 		"raw_last_query": strings.TrimSpace(rawLastQuery),
 		"updated_at":     time.Now().UTC(),
+	}
+	if expiresAt != nil {
+		updates["expires_at"] = expiresAt.UTC()
 	}
 	if normalizePaymentStatus(status) == PaymentOrderStatusPaid {
 		now := time.Now().UTC()
 		updates["paid_at"] = now
 	}
 	return s.db.Model(&PaymentOrder{}).Where("id = ?", strings.TrimSpace(orderID)).Updates(updates).Error
+}
+
+func (s *PaymentOrderStore) ListUnsettledForReconcile(provider string, before time.Time, limit int) ([]*PaymentOrder, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	statuses := []string{
+		PaymentOrderStatusPending,
+		PaymentOrderStatusCreated,
+		PaymentOrderStatusPartial,
+		PaymentOrderStatusUnknown,
+	}
+	var items []*PaymentOrder
+	err := s.db.
+		Where("provider = ?", normalizeProvider(provider)).
+		Where("status IN ?", statuses).
+		Where("updated_at <= ?", before.UTC()).
+		Order("updated_at ASC").
+		Limit(limit).
+		Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
