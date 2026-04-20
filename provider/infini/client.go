@@ -72,8 +72,8 @@ type CreateOrderResponse struct {
 	RequestID       string `json:"request_id"`
 	CheckoutURL     string `json:"checkout_url"`
 	ClientReference string `json:"client_reference"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
 }
-
 type QueryOrderResponse struct {
 	OrderID          string   `json:"order_id"`
 	Status           string   `json:"status"`

@@ -151,6 +151,7 @@ type AutoTrader struct {
 	userID                string             // User ID
 	userEmail             string             // User email (for signal routing)
 	strategyID            string             // Bound strategy ID (for signal routing)
+	lastStrategyUpdatedAt time.Time          // Last loaded strategy update time (for hot-reload)
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
 }
 
@@ -184,42 +185,42 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	case "claude":
 		mcpClient = mcp.NewClaudeClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using Claude AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using Claude AI", config.Name)
 
 	case "kimi":
 		mcpClient = mcp.NewKimiClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using Kimi (Moonshot) AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using Kimi (Moonshot) AI", config.Name)
 
 	case "gemini":
 		mcpClient = mcp.NewGeminiClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using Google Gemini AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using Google Gemini AI", config.Name)
 
 	case "grok":
 		mcpClient = mcp.NewGrokClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using xAI Grok AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using xAI Grok AI", config.Name)
 
 	case "openai":
 		mcpClient = mcp.NewOpenAIClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using OpenAI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using OpenAI", config.Name)
 
 	case "minimax":
 		mcpClient = mcp.NewMiniMaxClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using MiniMax AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using MiniMax AI", config.Name)
 
 	case "blockrun-base":
 		mcpClient = mcp.NewBlockRunBaseClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, "", config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using BlockRun (Base Wallet) AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using BlockRun (Base Wallet) AI", config.Name)
 
 	case "blockrun-sol":
 		mcpClient = mcp.NewBlockRunSolClient()
 		mcpClient.SetAPIKey(config.CustomAPIKey, "", config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using BlockRun (Solana Wallet) AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using BlockRun (Solana Wallet) AI", config.Name)
 
 	case "qwen":
 		mcpClient = mcp.NewQwenClient()
@@ -228,12 +229,12 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			apiKey = config.CustomAPIKey
 		}
 		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using Alibaba Cloud Qwen AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using Alibaba Cloud Qwen AI", config.Name)
 
 	case "custom":
 		mcpClient = mcp.New()
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 
 	default: // deepseek or empty
 		mcpClient = mcp.NewDeepSeekClient()
@@ -242,11 +243,11 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			apiKey = config.CustomAPIKey
 		}
 		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("棣冾樆 [%s] Using DeepSeek AI", config.Name)
+		logger.Infof("濡絽鍠氬Ο?[%s] Using DeepSeek AI", config.Name)
 	}
 
 	if config.CustomAPIURL != "" || config.CustomModelName != "" {
-		logger.Infof("棣冩暋 [%s] Custom config - URL: %s, Model: %s", config.Name, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("濡絽鍟弳?[%s] Custom config - URL: %s, Model: %s", config.Name, config.CustomAPIURL, config.CustomModelName)
 	}
 
 	// Set default trading platform
@@ -263,41 +264,41 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	if !config.IsCrossMargin {
 		marginModeStr = "Isolated Margin"
 	}
-	logger.Infof("棣冩惓 [%s] Position mode: %s", config.Name, marginModeStr)
+	logger.Infof("濡絽鍟幆?[%s] Position mode: %s", config.Name, marginModeStr)
 
 	switch config.Exchange {
 	case "binance":
-		logger.Infof("棣冨綗 [%s] Using Binance Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Binance Futures trading", config.Name)
 		trader = binance.NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID)
 	case "bybit":
-		logger.Infof("棣冨綗 [%s] Using Bybit Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Bybit Futures trading", config.Name)
 		trader = bybit.NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
 	case "okx":
-		logger.Infof("棣冨綗 [%s] Using OKX Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using OKX Futures trading", config.Name)
 		trader = okx.NewOKXTrader(config.OKXAPIKey, config.OKXSecretKey, config.OKXPassphrase)
 	case "bitget":
-		logger.Infof("棣冨綗 [%s] Using Bitget Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Bitget Futures trading", config.Name)
 		trader = bitget.NewBitgetTrader(config.BitgetAPIKey, config.BitgetSecretKey, config.BitgetPassphrase)
 	case "gate":
-		logger.Infof("棣冨綗 [%s] Using Gate.io Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Gate.io Futures trading", config.Name)
 		trader = gate.NewGateTrader(config.GateAPIKey, config.GateSecretKey)
 	case "kucoin":
-		logger.Infof("棣冨綗 [%s] Using KuCoin Futures trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using KuCoin Futures trading", config.Name)
 		trader = kucoin.NewKuCoinTrader(config.KuCoinAPIKey, config.KuCoinSecretKey, config.KuCoinPassphrase)
 	case "hyperliquid":
-		logger.Infof("棣冨綗 [%s] Using Hyperliquid trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Hyperliquid trading", config.Name)
 		trader, err = hyperliquid.NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet, config.HyperliquidUnifiedAcct)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Hyperliquid trader: %w", err)
 		}
 	case "aster":
-		logger.Infof("棣冨綗 [%s] Using Aster trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Aster trading", config.Name)
 		trader, err = aster.NewAsterTrader(config.AsterUser, config.AsterSigner, config.AsterPrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Aster trader: %w", err)
 		}
 	case "lighter":
-		logger.Infof("棣冨綗 [%s] Using LIGHTER trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using LIGHTER trading", config.Name)
 
 		if config.LighterWalletAddr == "" || config.LighterAPIKeyPrivateKey == "" {
 			return nil, fmt.Errorf("Lighter requires wallet address and API Key private key")
@@ -313,9 +314,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize LIGHTER trader: %w", err)
 		}
-		logger.Infof("閴?LIGHTER trader initialized successfully")
+		logger.Infof("闂?LIGHTER trader initialized successfully")
 	case "indodax":
-		logger.Infof("棣冨綗 [%s] Using Indodax Spot trading", config.Name)
+		logger.Infof("濡絽鍟紞?[%s] Using Indodax Spot trading", config.Name)
 		trader = indodax.NewIndodaxTrader(config.IndodaxAPIKey, config.IndodaxSecretKey)
 	default:
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
@@ -323,7 +324,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 
 	// Validate initial balance configuration, auto-fetch from exchange if 0
 	if config.InitialBalance <= 0 {
-		logger.Infof("棣冩惓 [%s] Initial balance not set, attempting to fetch current balance from exchange...", config.Name)
+		logger.Infof("濡絽鍟幆?[%s] Initial balance not set, attempting to fetch current balance from exchange...", config.Name)
 		account, err := trader.GetBalance()
 		if err != nil {
 			return nil, fmt.Errorf("initial balance not set and unable to fetch balance from exchange: %w", err)
@@ -339,13 +340,13 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 		if foundBalance > 0 {
 			config.InitialBalance = foundBalance
-			logger.Infof("閴?[%s] Auto-fetched initial balance: %.2f USDT", config.Name, foundBalance)
+			logger.Infof("闂?[%s] Auto-fetched initial balance: %.2f USDT", config.Name, foundBalance)
 			// Save to database so it persists across restarts
 			if st != nil {
 				if err := st.Trader().UpdateInitialBalance(userID, config.ID, foundBalance); err != nil {
-					logger.Infof("閳跨媴绗? [%s] Failed to save initial balance to database: %v", config.Name, err)
+					logger.Infof("闂佸疇娉曟刊瀵哥箔? [%s] Failed to save initial balance to database: %v", config.Name, err)
 				} else {
-					logger.Infof("閴?[%s] Initial balance saved to database", config.Name)
+					logger.Infof("闂?[%s] Initial balance saved to database", config.Name)
 				}
 			}
 		} else {
@@ -357,7 +358,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	var cycleNumber int
 	if st != nil {
 		cycleNumber, _ = st.Decision().GetLastCycleNumber(config.ID)
-		logger.Infof("棣冩惓 [%s] Decision records will be stored to database", config.Name)
+		logger.Infof("濡絽鍟幆?[%s] Decision records will be stored to database", config.Name)
 	}
 
 	// Create strategy engine (must have strategy config)
@@ -365,7 +366,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		return nil, fmt.Errorf("[%s] strategy not configured", config.Name)
 	}
 	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig)
-	logger.Infof("閴?[%s] Using strategy engine (strategy configuration loaded)", config.Name)
+	logger.Infof("闂?[%s] Using strategy engine (strategy configuration loaded)", config.Name)
 
 	at := &AutoTrader{
 		id:                    config.ID,
@@ -414,13 +415,13 @@ func (at *AutoTrader) Run() error {
 	at.stopMonitorCh = make(chan struct{})
 	at.startTime = time.Now()
 
-	logger.Info("棣冩畬 AI-driven automatic trading system started")
-	logger.Infof("棣冩尩 Initial balance: %.2f USDT", at.initialBalance)
-	logger.Infof("閳挎瑱绗? Scan interval: %v", at.config.ScanInterval)
+	logger.Info("濡絽鍟悾?AI-driven automatic trading system started")
+	logger.Infof("濡絽鍟亸?Initial balance: %.2f USDT", at.initialBalance)
+	logger.Infof("闂佽櫕瀵ч悷杈╃箔? Scan interval: %v", at.config.ScanInterval)
 	if at.isAlertOnlyMode() {
-		logger.Infof("棣冩憗 Execution mode: alert_only (signal notification only, no order placement)")
+		logger.Infof("濡絽鍟幉?Execution mode: alert_only (signal notification only, no order placement)")
 	}
-	logger.Info("棣冾樆 AI will make full decisions on leverage, position size, stop loss/take profit, etc.")
+	logger.Info("濡絽鍠氬Ο?AI will make full decisions on leverage, position size, stop loss/take profit, etc.")
 	at.monitorWg.Add(1)
 	defer at.monitorWg.Done()
 
@@ -431,7 +432,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "lighter" {
 		if lighterTrader, ok := at.trader.(*lighter.LighterTraderV2); ok && at.store != nil {
 			lighterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Lighter order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Lighter order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -439,7 +440,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "hyperliquid" {
 		if hyperliquidTrader, ok := at.trader.(*hyperliquid.HyperliquidTrader); ok && at.store != nil {
 			hyperliquidTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Hyperliquid order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Hyperliquid order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -447,7 +448,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "bybit" {
 		if bybitTrader, ok := at.trader.(*bybit.BybitTrader); ok && at.store != nil {
 			bybitTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Bybit order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Bybit order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -455,7 +456,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "okx" {
 		if okxTrader, ok := at.trader.(*okx.OKXTrader); ok && at.store != nil {
 			okxTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] OKX order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] OKX order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -463,7 +464,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "bitget" {
 		if bitgetTrader, ok := at.trader.(*bitget.BitgetTrader); ok && at.store != nil {
 			bitgetTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Bitget order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Bitget order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -471,7 +472,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "aster" {
 		if asterTrader, ok := at.trader.(*aster.AsterTrader); ok && at.store != nil {
 			asterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Aster order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Aster order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -479,7 +480,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "binance" {
 		if binanceTrader, ok := at.trader.(*binance.FuturesTrader); ok && at.store != nil {
 			binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Binance order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Binance order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -487,7 +488,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "gate" {
 		if gateTrader, ok := at.trader.(*gate.GateTrader); ok && at.store != nil {
 			gateTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] Gate order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] Gate order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -495,7 +496,7 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "kucoin" {
 		if kucoinTrader, ok := at.trader.(*kucoin.KuCoinTrader); ok && at.store != nil {
 			kucoinTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("棣冩敡 [%s] KuCoin order+position sync enabled (every 30s)", at.name)
+			logger.Infof("濡絽鍟弫?[%s] KuCoin order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -505,9 +506,9 @@ func (at *AutoTrader) Run() error {
 	// Check if this is a grid trading strategy
 	isGridStrategy := at.IsGridStrategy()
 	if isGridStrategy {
-		logger.Infof("棣冩暢 [%s] Grid trading strategy detected, initializing grid...", at.name)
+		logger.Infof("濡絽鍟弳?[%s] Grid trading strategy detected, initializing grid...", at.name)
 		if err := at.InitializeGrid(); err != nil {
-			logger.Errorf("閴?[%s] Failed to initialize grid: %v", at.name, err)
+			logger.Errorf("闂?[%s] Failed to initialize grid: %v", at.name, err)
 			return fmt.Errorf("grid initialization failed: %w", err)
 		}
 	}
@@ -515,11 +516,11 @@ func (at *AutoTrader) Run() error {
 	// Execute immediately on first run
 	if isGridStrategy {
 		if err := at.RunGridCycle(); err != nil {
-			logger.Infof("閴?Grid execution failed: %v", err)
+			logger.Infof("闂?Grid execution failed: %v", err)
 		}
 	} else {
 		if err := at.runCycle(); err != nil {
-			logger.Infof("閴?Execution failed: %v", err)
+			logger.Infof("闂?Execution failed: %v", err)
 		}
 	}
 
@@ -536,15 +537,15 @@ func (at *AutoTrader) Run() error {
 		case <-ticker.C:
 			if isGridStrategy {
 				if err := at.RunGridCycle(); err != nil {
-					logger.Infof("閴?Grid execution failed: %v", err)
+					logger.Infof("闂?Grid execution failed: %v", err)
 				}
 			} else {
 				if err := at.runCycle(); err != nil {
-					logger.Infof("閴?Execution failed: %v", err)
+					logger.Infof("闂?Execution failed: %v", err)
 				}
 			}
 		case <-at.stopMonitorCh:
-			logger.Infof("[%s] 閳?Stop signal received, exiting automatic trading main loop", at.name)
+			logger.Infof("[%s] 闂?Stop signal received, exiting automatic trading main loop", at.name)
 			return nil
 		}
 	}
@@ -564,7 +565,7 @@ func (at *AutoTrader) Stop() {
 
 	close(at.stopMonitorCh) // Notify monitoring goroutine to stop
 	at.monitorWg.Wait()     // Wait for monitoring goroutine to finish
-	logger.Info("閳?Automatic trading system stopped")
+	logger.Info("闂?Automatic trading system stopped")
 }
 
 func (at *AutoTrader) isAlertOnlyMode() bool {
@@ -600,12 +601,31 @@ func (at *AutoTrader) handleAlertOnlyDecision(decision *kernel.Decision, actionR
 	action := strings.ToLower(strings.TrimSpace(decision.Action))
 
 	switch action {
-	case "open_long", "open_short", "close_long", "close_short":
+	case "open_long", "open_short":
 		if marketData, err := market.GetWithExchange(decision.Symbol, at.exchange); err == nil {
 			actionRecord.Price = marketData.CurrentPrice
 		}
-		if (action == "open_long" || action == "open_short") && actionRecord.Price > 0 && decision.PositionSizeUSD > 0 {
+
+		// Apply risk validation before sending any open signal notifications.
+		if err := at.validateAlertOnlyOpenSignal(decision, actionRecord); err != nil {
+			return err
+		}
+		if isActionSkipped(actionRecord) {
+			actionRecord.Success = true
+			return nil
+		}
+
+		if actionRecord.Price > 0 && decision.PositionSizeUSD > 0 {
 			actionRecord.Quantity = decision.PositionSizeUSD / actionRecord.Price
+		}
+
+		actionRecord.Success = true
+		at.notifyStrategySignal(decision, actionRecord)
+		return nil
+
+	case "close_long", "close_short":
+		if marketData, err := market.GetWithExchange(decision.Symbol, at.exchange); err == nil {
+			actionRecord.Price = marketData.CurrentPrice
 		}
 		if action == "close_long" {
 			actionRecord.Quantity = at.estimateCloseQuantity(decision.Symbol, "long")
@@ -613,6 +633,14 @@ func (at *AutoTrader) handleAlertOnlyDecision(decision *kernel.Decision, actionR
 		if action == "close_short" {
 			actionRecord.Quantity = at.estimateCloseQuantity(decision.Symbol, "short")
 		}
+
+		// Do not send close signal if there is no corresponding position.
+		if actionRecord.Quantity <= 0 {
+			markActionSkipped(actionRecord, fmt.Sprintf("skip %s %s: no matching open position", action, decision.Symbol))
+			actionRecord.Success = true
+			return nil
+		}
+
 		actionRecord.Success = true
 		at.notifyStrategySignal(decision, actionRecord)
 		return nil
@@ -624,12 +652,75 @@ func (at *AutoTrader) handleAlertOnlyDecision(decision *kernel.Decision, actionR
 	}
 }
 
+func (at *AutoTrader) validateAlertOnlyOpenSignal(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	riskControl := at.riskControlConfig()
+	marketPrice := actionRecord.Price
+	if marketPrice <= 0 {
+		return fmt.Errorf("failed to get market price for %s", decision.Symbol)
+	}
+
+	// 1) Entry deviation guard.
+	if shouldSkipByPriceDeviation(decision.EntryPrice, marketPrice, riskControl.EffectivePriceDeviationLimitPct()) {
+		reason := fmt.Sprintf("skip %s %s: entry deviation too high (ai=%.6f market=%.6f limit=%.2f%%)",
+			decision.Action, decision.Symbol, decision.EntryPrice, marketPrice, riskControl.EffectivePriceDeviationLimitPct())
+		markActionSkipped(actionRecord, reason)
+		return nil
+	}
+
+	// 2) RR guard with current market price as estimated entry in alert mode.
+	minRR := effectiveMinRiskRewardRatio(riskControl.MinRiskRewardRatio)
+	rr, riskPct, rewardPct, ok := store.CalculateRiskReward(decision.Action, marketPrice, decision.StopLoss, decision.TakeProfit)
+	if !ok {
+		markActionSkipped(actionRecord, fmt.Sprintf("skip %s %s: invalid RR inputs at market entry %.6f", decision.Action, decision.Symbol, marketPrice))
+		return nil
+	}
+
+	threshold := minRR
+	if riskControl.EffectivePostFillRRRecheckEnabled() {
+		threshold = minRR - riskControl.EffectivePostFillRRTolerance()
+		if threshold < 0 {
+			threshold = 0
+		}
+	}
+
+	if rr >= threshold {
+		return nil
+	}
+
+	onFail := riskControl.EffectivePostFillRROnFail()
+	msg := fmt.Sprintf("RR check failed [%s %s]: rr=%.2f threshold=%.2f risk=%.2f%% reward=%.2f%% action=%s",
+		decision.Action, decision.Symbol, rr, threshold, riskPct, rewardPct, onFail)
+
+	switch onFail {
+	case store.PostFillRROnFailAdjustTP:
+		newTP, adjusted := store.AdjustTakeProfitForMinRR(decision.Action, marketPrice, decision.StopLoss, minRR)
+		if !adjusted || newTP <= 0 {
+			markActionSkipped(actionRecord, msg+"; adjust_tp failed")
+			return nil
+		}
+		decision.TakeProfit = newTP
+		actionRecord.TakeProfit = newTP
+		appendActionWarning(actionRecord, msg+fmt.Sprintf("; adjusted tp=%.6f", newTP))
+		return nil
+	case store.PostFillRROnFailCloseImmediately:
+		// In alert-only mode there is no newly opened position to close; skip signal.
+		markActionSkipped(actionRecord, msg+"; close_immediately mapped to skip in alert_only mode")
+		return nil
+	case store.PostFillRROnFailAlertOnly:
+		appendActionWarning(actionRecord, msg)
+		return nil
+	default:
+		markActionSkipped(actionRecord, msg)
+		return nil
+	}
+}
+
 // runCycle runs one trading cycle (using AI full decision-making)
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
 	logger.Info("\n" + strings.Repeat("=", 70) + "\n")
-	logger.Infof("閳?%s - AI decision cycle #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
+	logger.Infof("闂?%s - AI decision cycle #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
 	logger.Info(strings.Repeat("=", 70))
 
 	// 0. Check if trader is stopped (early exit to prevent trades after Stop() is called)
@@ -637,9 +728,12 @@ func (at *AutoTrader) runCycle() error {
 	running := at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
-		logger.Infof("閳?Trader is stopped, aborting cycle #%d", at.callCount)
+		logger.Infof("闂?Trader is stopped, aborting cycle #%d", at.callCount)
 		return nil
 	}
+
+	// Hot-reload strategy config from DB when Strategy Studio changes are detected.
+	at.refreshStrategyConfigIfNeeded()
 
 	// Create decision record
 	record := &store.DecisionRecord{
@@ -650,7 +744,7 @@ func (at *AutoTrader) runCycle() error {
 	// 1. Check if trading needs to be stopped
 	if time.Now().Before(at.stopUntil) {
 		remaining := at.stopUntil.Sub(time.Now())
-		logger.Infof("閳?Risk control: Trading paused, remaining %.0f minutes", remaining.Minutes())
+		logger.Infof("闂?Risk control: Trading paused, remaining %.0f minutes", remaining.Minutes())
 		record.Success = false
 		record.ErrorMessage = fmt.Sprintf("Risk control paused, remaining %.0f minutes", remaining.Minutes())
 		at.saveDecision(record)
@@ -661,7 +755,7 @@ func (at *AutoTrader) runCycle() error {
 	if time.Since(at.lastResetTime) > 24*time.Hour {
 		at.dailyPnL = 0
 		at.lastResetTime = time.Now()
-		logger.Info("棣冩惍 Daily P&L reset")
+		logger.Info("濡絽鍟幆?Daily P&L reset")
 	}
 
 	// 4. Collect trading context
@@ -698,16 +792,16 @@ func (at *AutoTrader) runCycle() error {
 		record.CandidateCoins = append(record.CandidateCoins, coin.Symbol)
 	}
 
-	logger.Infof("棣冩惓 Account equity: %.2f USDT | Available: %.2f USDT | Positions: %d",
+	logger.Infof("濡絽鍟幆?Account equity: %.2f USDT | Available: %.2f USDT | Positions: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
 	// 5. Use strategy engine to call AI for decision
-	logger.Infof("棣冾樆 Requesting AI analysis and decision... [Strategy Engine]")
+	logger.Infof("濡絽鍠氬Ο?Requesting AI analysis and decision... [Strategy Engine]")
 	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
 
 	if aiDecision != nil && aiDecision.AIRequestDurationMs > 0 {
 		record.AIRequestDurationMs = aiDecision.AIRequestDurationMs
-		logger.Infof("閳存唻绗?AI call duration: %.2f seconds", float64(record.AIRequestDurationMs)/1000)
+		logger.Infof("闂佸啿鐡ㄩ崬鑽ょ箔?AI call duration: %.2f seconds", float64(record.AIRequestDurationMs)/1000)
 		record.ExecutionLog = append(record.ExecutionLog,
 			fmt.Sprintf("AI call duration: %d ms", record.AIRequestDurationMs))
 	}
@@ -731,14 +825,14 @@ func (at *AutoTrader) runCycle() error {
 		// Print system prompt and AI chain of thought (output even with errors for debugging)
 		if aiDecision != nil {
 			logger.Info("\n" + strings.Repeat("=", 70) + "\n")
-			logger.Infof("棣冩惖 System prompt (error case)")
+			logger.Infof("濡絽鍟幆?System prompt (error case)")
 			logger.Info(strings.Repeat("=", 70))
 			logger.Info(aiDecision.SystemPrompt)
 			logger.Info(strings.Repeat("=", 70))
 
 			if aiDecision.CoTTrace != "" {
 				logger.Info("\n" + strings.Repeat("-", 70) + "\n")
-				logger.Info("棣冩尡 AI chain of thought analysis (error case):")
+				logger.Info("濡絽鍟亸?AI chain of thought analysis (error case):")
 				logger.Info(strings.Repeat("-", 70))
 				logger.Info(aiDecision.CoTTrace)
 				logger.Info(strings.Repeat("-", 70))
@@ -751,20 +845,20 @@ func (at *AutoTrader) runCycle() error {
 
 	// // 5. Print system prompt
 	// logger.Infof("\n" + strings.Repeat("=", 70))
-	// logger.Infof("棣冩惖 System prompt [template: %s]", at.systemPromptTemplate)
+	// logger.Infof("濡絽鍟幆?System prompt [template: %s]", at.systemPromptTemplate)
 	// logger.Info(strings.Repeat("=", 70))
 	// logger.Info(decision.SystemPrompt)
 	// logger.Infof(strings.Repeat("=", 70) + "\n")
 
 	// 6. Print AI chain of thought
 	// logger.Infof("\n" + strings.Repeat("-", 70))
-	// logger.Info("棣冩尡 AI chain of thought analysis:")
+	// logger.Info("濡絽鍟亸?AI chain of thought analysis:")
 	// logger.Info(strings.Repeat("-", 70))
 	// logger.Info(decision.CoTTrace)
 	// logger.Infof(strings.Repeat("-", 70) + "\n")
 
 	// 7. Print AI decisions
-	// logger.Infof("棣冩惖 AI decision list (%d items):\n", len(kernel.Decisions))
+	// logger.Infof("濡絽鍟幆?AI decision list (%d items):\n", len(kernel.Decisions))
 	// for i, d := range kernel.Decisions {
 	//     logger.Infof("  [%d] %s: %s - %s", i+1, d.Symbol, d.Action, d.Reasoning)
 	//     if d.Action == "open_long" || d.Action == "open_short" {
@@ -780,7 +874,7 @@ func (at *AutoTrader) runCycle() error {
 	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
 	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
 
-	logger.Info("棣冩敡 Execution order (optimized): Close positions first 閳?Open positions later")
+	logger.Info("濡絽鍟弫?Execution order (optimized): Close positions first 闂?Open positions later")
 	for i, d := range sortedDecisions {
 		logger.Infof("  [%d] %s %s", i+1, d.Symbol, d.Action)
 	}
@@ -791,13 +885,13 @@ func (at *AutoTrader) runCycle() error {
 	running = at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
-		logger.Infof("閳?Trader stopped before decision execution, aborting cycle #%d", at.callCount)
+		logger.Infof("闂?Trader stopped before decision execution, aborting cycle #%d", at.callCount)
 		return nil
 	}
 
 	alertOnlyMode := at.isAlertOnlyMode()
 	if alertOnlyMode {
-		logger.Infof("棣冩憗 [%s] Alert-only mode enabled: decisions will be sent as signals without placing orders", at.name)
+		logger.Infof("濡絽鍟幉?[%s] Alert-only mode enabled: decisions will be sent as signals without placing orders", at.name)
 	}
 
 	// Execute decisions and record results
@@ -807,22 +901,24 @@ func (at *AutoTrader) runCycle() error {
 		running = at.isRunning
 		at.isRunningMutex.RUnlock()
 		if !running {
-			logger.Infof("閳?Trader stopped during decision execution, aborting remaining decisions")
+			logger.Infof("闂?Trader stopped during decision execution, aborting remaining decisions")
 			break
 		}
 
 		actionRecord := store.DecisionAction{
-			Action:     d.Action,
-			Symbol:     d.Symbol,
-			Quantity:   0,
-			Leverage:   d.Leverage,
-			Price:      0,
-			StopLoss:   d.StopLoss,
-			TakeProfit: d.TakeProfit,
-			Confidence: d.Confidence,
-			Reasoning:  d.Reasoning,
-			Timestamp:  time.Now().UTC(),
-			Success:    false,
+			Action:          d.Action,
+			Symbol:          d.Symbol,
+			Quantity:        0,
+			Leverage:        d.Leverage,
+			Price:           0,
+			EntryPrice:      d.EntryPrice,
+			PositionSizeUSD: d.PositionSizeUSD,
+			StopLoss:        d.StopLoss,
+			TakeProfit:      d.TakeProfit,
+			Confidence:      d.Confidence,
+			Reasoning:       d.Reasoning,
+			Timestamp:       time.Now().UTC(),
+			Success:         false,
 		}
 
 		if isOpenDecisionAction(d.Action) {
@@ -837,9 +933,11 @@ func (at *AutoTrader) runCycle() error {
 
 		if alertOnlyMode {
 			if err := at.handleAlertOnlyDecision(&d, &actionRecord); err != nil {
-				logger.Infof("閴?Failed to process signal (%s %s): %v", d.Symbol, d.Action, err)
+				logger.Infof("闂?Failed to process signal (%s %s): %v", d.Symbol, d.Action, err)
 				actionRecord.Error = err.Error()
 				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[ERROR] %s %s signal failed: %v", d.Symbol, d.Action, err))
+			} else if reason, skipped := actionSkipReason(&actionRecord); skipped {
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[SKIP] %s %s skipped: %s", d.Symbol, d.Action, reason))
 			} else if actionRecord.Action == "open_long" || actionRecord.Action == "open_short" || actionRecord.Action == "close_long" || actionRecord.Action == "close_short" {
 				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[SIGNAL] %s %s signal sent", d.Symbol, d.Action))
 			} else {
@@ -850,14 +948,18 @@ func (at *AutoTrader) runCycle() error {
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
-			logger.Infof("閴?Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
+			logger.Infof("闂?Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
 			actionRecord.Error = err.Error()
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[ERROR] %s %s failed: %v", d.Symbol, d.Action, err))
 		} else {
 			actionRecord.Success = true
-			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[OK] %s %s succeeded", d.Symbol, d.Action))
-			// Brief delay after successful execution
-			time.Sleep(1 * time.Second)
+			if reason, skipped := actionSkipReason(&actionRecord); skipped {
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[SKIP] %s %s skipped: %s", d.Symbol, d.Action, reason))
+			} else {
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("[OK] %s %s succeeded", d.Symbol, d.Action))
+				// Brief delay after successful execution
+				time.Sleep(1 * time.Second)
+			}
 		}
 
 		record.Decisions = append(record.Decisions, actionRecord)
@@ -865,7 +967,7 @@ func (at *AutoTrader) runCycle() error {
 
 	// 9. Save decision record
 	if err := at.saveDecision(record); err != nil {
-		logger.Infof("閳?Failed to save decision record: %v", err)
+		logger.Infof("闂?Failed to save decision record: %v", err)
 	}
 
 	return nil
@@ -1002,15 +1104,15 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	// 3. Use strategy engine to get candidate coins (must have strategy engine)
 	var candidateCoins []kernel.CandidateCoin
 	if at.strategyEngine == nil {
-		logger.Infof("閳跨媴绗?[%s] No strategy engine configured, skipping candidate coins", at.name)
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] No strategy engine configured, skipping candidate coins", at.name)
 	} else {
 		coins, err := at.strategyEngine.GetCandidateCoins()
 		if err != nil {
 			// Log warning but don't fail - equity snapshot should still be saved
-			logger.Infof("閳跨媴绗?[%s] Failed to get candidate coins: %v (will use empty list)", at.name, err)
+			logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] Failed to get candidate coins: %v (will use empty list)", at.name, err)
 		} else {
 			candidateCoins = coins
-			logger.Infof("棣冩惖 [%s] Strategy engine fetched candidate coins: %d", at.name, len(candidateCoins))
+			logger.Infof("濡絽鍟幆?[%s] Strategy engine fetched candidate coins: %d", at.name, len(candidateCoins))
 		}
 	}
 
@@ -1030,7 +1132,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	strategyConfig := at.strategyEngine.GetConfig()
 	btcEthLeverage := strategyConfig.RiskControl.BTCETHMaxLeverage
 	altcoinLeverage := strategyConfig.RiskControl.AltcoinMaxLeverage
-	logger.Infof("棣冩惖 [%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
+	logger.Infof("濡絽鍟幆?[%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
 
 	// 6. Build context
 	ctx := &kernel.Context{
@@ -1058,9 +1160,9 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		// Get recent 10 closed trades for AI context
 		recentTrades, err := at.store.Position().GetRecentTrades(at.id, 10)
 		if err != nil {
-			logger.Infof("閳跨媴绗?[%s] Failed to get recent trades: %v", at.name, err)
+			logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] Failed to get recent trades: %v", at.name, err)
 		} else {
-			logger.Infof("棣冩惓 [%s] Found %d recent closed trades for AI context", at.name, len(recentTrades))
+			logger.Infof("濡絽鍟幆?[%s] Found %d recent closed trades for AI context", at.name, len(recentTrades))
 			for _, trade := range recentTrades {
 				// Convert Unix timestamps to formatted strings for AI readability
 				entryTimeStr := ""
@@ -1088,11 +1190,11 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		// Get trading statistics for AI context
 		stats, err := at.store.Position().GetFullStats(at.id)
 		if err != nil {
-			logger.Infof("閳跨媴绗?[%s] Failed to get trading stats: %v", at.name, err)
+			logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] Failed to get trading stats: %v", at.name, err)
 		} else if stats == nil {
-			logger.Infof("閳跨媴绗?[%s] GetFullStats returned nil", at.name)
+			logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] GetFullStats returned nil", at.name)
 		} else if stats.TotalTrades == 0 {
-			logger.Infof("閳跨媴绗?[%s] GetFullStats returned 0 trades (traderID=%s)", at.name, at.id)
+			logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] GetFullStats returned 0 trades (traderID=%s)", at.name, at.id)
 		} else {
 			ctx.TradingStats = &kernel.TradingStats{
 				TotalTrades:    stats.TotalTrades,
@@ -1104,11 +1206,11 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 				AvgLoss:        stats.AvgLoss,
 				MaxDrawdownPct: stats.MaxDrawdownPct,
 			}
-			logger.Infof("棣冩惐 [%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
+			logger.Infof("濡絽鍟幆?[%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
 				at.name, stats.TotalTrades, stats.WinRate, stats.ProfitFactor, stats.SharpeRatio, stats.MaxDrawdownPct)
 		}
 	} else {
-		logger.Infof("閳跨媴绗?[%s] Store is nil, cannot get recent trades", at.name)
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?[%s] Store is nil, cannot get recent trades", at.name)
 	}
 
 	// 8. Get quantitative data (if enabled in strategy config)
@@ -1127,37 +1229,37 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			symbols = append(symbols, sym)
 		}
 
-		logger.Infof("棣冩惓 [%s] Fetching quantitative data for %d symbols...", at.name, len(symbols))
+		logger.Infof("濡絽鍟幆?[%s] Fetching quantitative data for %d symbols...", at.name, len(symbols))
 		ctx.QuantDataMap = at.strategyEngine.FetchQuantDataBatch(symbols)
-		logger.Infof("棣冩惓 [%s] Successfully fetched quantitative data for %d symbols", at.name, len(ctx.QuantDataMap))
+		logger.Infof("濡絽鍟幆?[%s] Successfully fetched quantitative data for %d symbols", at.name, len(ctx.QuantDataMap))
 	}
 
 	// 9. Get OI ranking data (market-wide position changes)
 	if strategyConfig.Indicators.EnableOIRanking {
-		logger.Infof("棣冩惓 [%s] Fetching OI ranking data...", at.name)
+		logger.Infof("濡絽鍟幆?[%s] Fetching OI ranking data...", at.name)
 		ctx.OIRankingData = at.strategyEngine.FetchOIRankingData()
 		if ctx.OIRankingData != nil {
-			logger.Infof("棣冩惓 [%s] OI ranking data ready: %d top, %d low positions",
+			logger.Infof("濡絽鍟幆?[%s] OI ranking data ready: %d top, %d low positions",
 				at.name, len(ctx.OIRankingData.TopPositions), len(ctx.OIRankingData.LowPositions))
 		}
 	}
 
 	// 10. Get NetFlow ranking data (market-wide fund flow)
 	if strategyConfig.Indicators.EnableNetFlowRanking {
-		logger.Infof("棣冩尩 [%s] Fetching NetFlow ranking data...", at.name)
+		logger.Infof("濡絽鍟亸?[%s] Fetching NetFlow ranking data...", at.name)
 		ctx.NetFlowRankingData = at.strategyEngine.FetchNetFlowRankingData()
 		if ctx.NetFlowRankingData != nil {
-			logger.Infof("棣冩尩 [%s] NetFlow ranking data ready: inst_in=%d, inst_out=%d",
+			logger.Infof("濡絽鍟亸?[%s] NetFlow ranking data ready: inst_in=%d, inst_out=%d",
 				at.name, len(ctx.NetFlowRankingData.InstitutionFutureTop), len(ctx.NetFlowRankingData.InstitutionFutureLow))
 		}
 	}
 
 	// 11. Get Price ranking data (market-wide gainers/losers)
 	if strategyConfig.Indicators.EnablePriceRanking {
-		logger.Infof("棣冩惐 [%s] Fetching Price ranking data...", at.name)
+		logger.Infof("濡絽鍟幆?[%s] Fetching Price ranking data...", at.name)
 		ctx.PriceRankingData = at.strategyEngine.FetchPriceRankingData()
 		if ctx.PriceRankingData != nil {
-			logger.Infof("棣冩惐 [%s] Price ranking data ready for %d durations",
+			logger.Infof("濡絽鍟幆?[%s] Price ranking data ready for %d durations",
 				at.name, len(ctx.PriceRankingData.Durations))
 		}
 	}
@@ -1184,6 +1286,38 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 	}
 }
 
+// refreshStrategyConfigIfNeeded hot-reloads strategy config when DB version changes.
+func (at *AutoTrader) refreshStrategyConfigIfNeeded() {
+	if at.store == nil || strings.TrimSpace(at.strategyID) == "" || strings.TrimSpace(at.userID) == "" {
+		return
+	}
+
+	st, err := at.store.Strategy().GetAccessible(at.userID, at.strategyID)
+	if err != nil || st == nil {
+		if err != nil {
+			logger.Infof("閳跨媴绗?[%s] Strategy hot-reload skipped (load failed): %v", at.name, err)
+		}
+		return
+	}
+
+	if !at.lastStrategyUpdatedAt.IsZero() && !st.UpdatedAt.After(at.lastStrategyUpdatedAt) {
+		return
+	}
+
+	cfg, err := st.ParseConfig()
+	if err != nil {
+		logger.Infof("閳跨媴绗?[%s] Strategy hot-reload skipped (parse failed): %v", at.name, err)
+		return
+	}
+
+	at.config.StrategyConfig = cfg
+	at.strategyEngine = kernel.NewStrategyEngine(cfg)
+	at.lastStrategyUpdatedAt = st.UpdatedAt
+
+	logger.Infof("棣冩敡 [%s] Strategy hot-reloaded: id=%s updated_at=%s",
+		at.name, at.strategyID, st.UpdatedAt.UTC().Format(time.RFC3339))
+}
+
 // ExecuteDecision executes a trading decision from external sources (e.g., debate consensus)
 // This is a public method that can be called by other modules
 func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
@@ -1199,19 +1333,25 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 
 	// Create a minimal action record for tracking
 	actionRecord := &store.DecisionAction{
-		Symbol:     d.Symbol,
-		Action:     d.Action,
-		Leverage:   d.Leverage,
-		StopLoss:   d.StopLoss,
-		TakeProfit: d.TakeProfit,
-		Confidence: d.Confidence,
-		Reasoning:  d.Reasoning,
+		Symbol:          d.Symbol,
+		Action:          d.Action,
+		Leverage:        d.Leverage,
+		EntryPrice:      d.EntryPrice,
+		PositionSizeUSD: d.PositionSizeUSD,
+		StopLoss:        d.StopLoss,
+		TakeProfit:      d.TakeProfit,
+		Confidence:      d.Confidence,
+		Reasoning:       d.Reasoning,
 	}
 
 	if at.isAlertOnlyMode() {
 		if err := at.handleAlertOnlyDecision(d, actionRecord); err != nil {
 			logger.Errorf("[%s] External signal processing failed: %v", at.name, err)
 			return err
+		}
+		if reason, skipped := actionSkipReason(actionRecord); skipped {
+			logger.Infof("[%s] External decision skipped in alert_only mode: %s", at.name, reason)
+			return nil
 		}
 		logger.Infof("[%s] External decision converted to signal: %s %s", at.name, d.Action, d.Symbol)
 		return nil
@@ -1223,6 +1363,10 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		logger.Errorf("[%s] External decision execution failed: %v", at.name, err)
 		return err
 	}
+	if reason, skipped := actionSkipReason(actionRecord); skipped {
+		logger.Infof("[%s] External decision skipped by risk control: %s", at.name, reason)
+		return nil
+	}
 
 	logger.Infof("[%s] External decision executed successfully: %s %s", at.name, d.Action, d.Symbol)
 	return nil
@@ -1230,151 +1374,48 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 
 // executeOpenLongWithRecord executes open long position and records detailed information
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  棣冩惐 Open long: %s", decision.Symbol)
-
-	// 閳跨媴绗?Get current positions for multiple checks
-	positions, err := at.trader.GetPositions()
-	if err != nil {
-		return fmt.Errorf("failed to get positions: %w", err)
-	}
-
-	// [CODE ENFORCED] Check max positions limit
-	if err := at.enforceMaxPositions(len(positions)); err != nil {
-		return err
-	}
-
-	// Check if there's already a position in the same symbol and direction
-	for _, pos := range positions {
-		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
-			return fmt.Errorf("閴?%s already has long position, close it first", decision.Symbol)
-		}
-	}
-
-	// Get current price
-	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
-	if err != nil {
-		return err
-	}
-
-	// Get balance (needed for multiple checks)
-	balance, err := at.trader.GetBalance()
-	if err != nil {
-		return fmt.Errorf("failed to get account balance: %w", err)
-	}
-	availableBalance := 0.0
-	if avail, ok := balance["availableBalance"].(float64); ok {
-		availableBalance = avail
-	}
-
-	// Get equity for position value ratio check
-	equity := 0.0
-	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
-		equity = eq
-	} else if eq, ok := balance["totalWalletBalance"].(float64); ok && eq > 0 {
-		equity = eq
-	} else {
-		equity = availableBalance // Fallback to available balance
-	}
-
-	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity 鑴?ratio
-	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
-	if wasCapped {
-		decision.PositionSizeUSD = adjustedPositionSize
-	}
-
-	// 閳跨媴绗?Auto-adjust position size if insufficient margin
-	// Formula: totalRequired = positionSize/leverage + positionSize*0.001 + positionSize/leverage*0.01
-	//        = positionSize * (1.01/leverage + 0.001)
-	marginFactor := 1.01/float64(decision.Leverage) + 0.001
-	maxAffordablePositionSize := availableBalance / marginFactor
-
-	actualPositionSize := decision.PositionSizeUSD
-	if actualPositionSize > maxAffordablePositionSize {
-		// Use 98% of max to leave buffer for price fluctuation
-		adjustedSize := maxAffordablePositionSize * 0.98
-		logger.Infof("  閳跨媴绗?Position size %.2f exceeds max affordable %.2f, auto-reducing to %.2f",
-			actualPositionSize, maxAffordablePositionSize, adjustedSize)
-		actualPositionSize = adjustedSize
-		decision.PositionSizeUSD = actualPositionSize
-	}
-
-	// [CODE ENFORCED] Minimum position size check
-	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
-		return err
-	}
-
-	// Calculate quantity with adjusted position size
-	quantity := actualPositionSize / marketData.CurrentPrice
-	actionRecord.Quantity = quantity
-	actionRecord.Price = marketData.CurrentPrice
-
-	// Set margin mode
-	if err := at.trader.SetMarginMode(decision.Symbol, at.config.IsCrossMargin); err != nil {
-		logger.Infof("  閳跨媴绗?Failed to set margin mode: %v", err)
-		// Continue execution, doesn't affect trading
-	}
-
-	// Open position
-	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
-	if err != nil {
-		return err
-	}
-
-	// Record order ID
-	if orderID, ok := order["orderId"].(int64); ok {
-		actionRecord.OrderID = orderID
-	}
-
-	logger.Infof("  閴?Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
-
-	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, marketData.CurrentPrice, decision.Leverage, 0)
-
-	// Record position opening time
-	posKey := decision.Symbol + "_long"
-	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
-
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  閳?Failed to set stop loss: %v", err)
-	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  閳?Failed to set take profit: %v", err)
-	}
-	at.notifyStrategySignal(decision, actionRecord)
-
-	return nil
+	return at.executeOpenWithRecord(decision, actionRecord, "long")
 }
 
 // executeOpenShortWithRecord executes open short position and records detailed information
 func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  棣冩惒 Open short: %s", decision.Symbol)
+	return at.executeOpenWithRecord(decision, actionRecord, "short")
+}
 
-	// 閳跨媴绗?Get current positions for multiple checks
+func (at *AutoTrader) executeOpenWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction, side string) error {
+	if side != "long" && side != "short" {
+		return fmt.Errorf("unknown open side: %s", side)
+	}
+	logger.Infof("  Open %s: %s", side, decision.Symbol)
+
 	positions, err := at.trader.GetPositions()
 	if err != nil {
 		return fmt.Errorf("failed to get positions: %w", err)
 	}
-
-	// [CODE ENFORCED] Check max positions limit
 	if err := at.enforceMaxPositions(len(positions)); err != nil {
 		return err
 	}
-
-	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
-		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
-			return fmt.Errorf("閴?%s already has short position, close it first", decision.Symbol)
+		if pos["symbol"] == decision.Symbol && pos["side"] == side {
+			return fmt.Errorf("%s already has %s position, close it first", decision.Symbol, side)
 		}
 	}
 
-	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
 		return err
 	}
+	actionRecord.Price = marketData.CurrentPrice
 
-	// Get balance (needed for multiple checks)
+	riskControl := at.riskControlConfig()
+	if shouldSkipByPriceDeviation(decision.EntryPrice, marketData.CurrentPrice, riskControl.EffectivePriceDeviationLimitPct()) {
+		reason := fmt.Sprintf("skip %s %s: entry deviation too high (ai=%.6f market=%.6f limit=%.2f%%)",
+			decision.Action, decision.Symbol, decision.EntryPrice, marketData.CurrentPrice, riskControl.EffectivePriceDeviationLimitPct())
+		logger.Infof("[RISK CONTROL] %s", reason)
+		markActionSkipped(actionRecord, reason)
+		return nil
+	}
+
 	balance, err := at.trader.GetBalance()
 	if err != nil {
 		return fmt.Errorf("failed to get account balance: %w", err)
@@ -1383,90 +1424,89 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	if avail, ok := balance["availableBalance"].(float64); ok {
 		availableBalance = avail
 	}
-
-	// Get equity for position value ratio check
 	equity := 0.0
 	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
 		equity = eq
 	} else if eq, ok := balance["totalWalletBalance"].(float64); ok && eq > 0 {
 		equity = eq
 	} else {
-		equity = availableBalance // Fallback to available balance
+		equity = availableBalance
 	}
 
-	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity 鑴?ratio
 	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
 	if wasCapped {
 		decision.PositionSizeUSD = adjustedPositionSize
 	}
 
-	// 閳跨媴绗?Auto-adjust position size if insufficient margin
-	// Formula: totalRequired = positionSize/leverage + positionSize*0.001 + positionSize/leverage*0.01
-	//        = positionSize * (1.01/leverage + 0.001)
 	marginFactor := 1.01/float64(decision.Leverage) + 0.001
 	maxAffordablePositionSize := availableBalance / marginFactor
-
 	actualPositionSize := decision.PositionSizeUSD
 	if actualPositionSize > maxAffordablePositionSize {
-		// Use 98% of max to leave buffer for price fluctuation
 		adjustedSize := maxAffordablePositionSize * 0.98
-		logger.Infof("  閳跨媴绗?Position size %.2f exceeds max affordable %.2f, auto-reducing to %.2f",
+		logger.Infof("  Position size %.2f exceeds max affordable %.2f, auto-reducing to %.2f",
 			actualPositionSize, maxAffordablePositionSize, adjustedSize)
 		actualPositionSize = adjustedSize
 		decision.PositionSizeUSD = actualPositionSize
 	}
-
-	// [CODE ENFORCED] Minimum position size check
 	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
 		return err
 	}
 
-	// Calculate quantity with adjusted position size
 	quantity := actualPositionSize / marketData.CurrentPrice
 	actionRecord.Quantity = quantity
 	actionRecord.Price = marketData.CurrentPrice
 
-	// Set margin mode
 	if err := at.trader.SetMarginMode(decision.Symbol, at.config.IsCrossMargin); err != nil {
-		logger.Infof("  閳跨媴绗?Failed to set margin mode: %v", err)
-		// Continue execution, doesn't affect trading
+		logger.Infof("  Failed to set margin mode: %v", err)
 	}
 
-	// Open position
-	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+	var (
+		order        map[string]interface{}
+		positionSide string
+		openAction   string
+	)
+	if side == "long" {
+		order, err = at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
+		positionSide = "LONG"
+		openAction = "open_long"
+	} else {
+		order, err = at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+		positionSide = "SHORT"
+		openAction = "open_short"
+	}
 	if err != nil {
 		return err
 	}
-
-	// Record order ID
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+	logger.Infof("  Position opened successfully, order ID: %v, quantity: %.6f", order["orderId"], quantity)
 
-	logger.Infof("  閴?Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
+	at.recordAndConfirmOrder(order, decision.Symbol, openAction, quantity, marketData.CurrentPrice, decision.Leverage, 0)
 
-	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, marketData.CurrentPrice, decision.Leverage, 0)
-
-	// Record position opening time
-	posKey := decision.Symbol + "_short"
+	posKey := decision.Symbol + "_" + side
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  閳?Failed to set stop loss: %v", err)
+	filledEntry := at.resolvePositionEntryPrice(decision.Symbol, side, marketData.CurrentPrice)
+	actionRecord.Price = filledEntry
+	if err := at.applyPostFillRRGuard(decision, actionRecord, side, filledEntry); err != nil {
+		return err
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  閳?Failed to set take profit: %v", err)
+	if isActionSkipped(actionRecord) {
+		return nil
 	}
-	at.notifyStrategySignal(decision, actionRecord)
 
+	if err := at.applyProtectionOrders(decision, actionRecord, positionSide, side, quantity); err != nil {
+		return err
+	}
+
+	at.notifyStrategySignal(decision, actionRecord)
 	return nil
 }
 
 // executeCloseLongWithRecord executes close long position and records detailed information
 func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  棣冩敡 Close long: %s", decision.Symbol)
+	logger.Infof("  濡絽鍟弫?Close long: %s", decision.Symbol)
 
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
@@ -1487,7 +1527,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 		if openPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, "LONG"); err == nil && openPos != nil {
 			quantity = openPos.Quantity
 			entryPrice = openPos.EntryPrice
-			logger.Infof("  棣冩惓 Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+			logger.Infof("  濡絽鍟幆?Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
 		}
 	}
 
@@ -1507,7 +1547,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 				}
 			}
 		}
-		logger.Infof("  棣冩惓 Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+		logger.Infof("  濡絽鍟幆?Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
 	}
 
 	// Close position
@@ -1524,14 +1564,14 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice)
 
-	logger.Infof("  閴?Position closed successfully")
+	logger.Infof("  闂?Position closed successfully")
 	at.notifyStrategySignal(decision, actionRecord)
 	return nil
 }
 
 // executeCloseShortWithRecord executes close short position and records detailed information
 func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  棣冩敡 Close short: %s", decision.Symbol)
+	logger.Infof("  濡絽鍟弫?Close short: %s", decision.Symbol)
 
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
@@ -1552,7 +1592,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 		if openPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, "SHORT"); err == nil && openPos != nil {
 			quantity = openPos.Quantity
 			entryPrice = openPos.EntryPrice
-			logger.Infof("  棣冩惓 Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+			logger.Infof("  濡絽鍟幆?Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
 		}
 	}
 
@@ -1572,7 +1612,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 				}
 			}
 		}
-		logger.Infof("  棣冩惓 Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+		logger.Infof("  濡絽鍟幆?Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
 	}
 
 	// Close position
@@ -1589,7 +1629,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice)
 
-	logger.Infof("  閴?Position closed successfully")
+	logger.Infof("  闂?Position closed successfully")
 	at.notifyStrategySignal(decision, actionRecord)
 	return nil
 }
@@ -1673,7 +1713,7 @@ func (at *AutoTrader) saveEquitySnapshot(ctx *kernel.Context) {
 	}
 
 	if err := at.store.Equity().Save(snapshot); err != nil {
-		logger.Infof("閳跨媴绗?Failed to save equity snapshot: %v", err)
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?Failed to save equity snapshot: %v", err)
 	}
 }
 
@@ -1692,11 +1732,11 @@ func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 	}
 
 	if err := at.store.Decision().LogDecision(record); err != nil {
-		logger.Infof("閳跨媴绗?Failed to save decision record: %v", err)
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?Failed to save decision record: %v", err)
 		return err
 	}
 
-	logger.Infof("棣冩憫 Decision record saved: trader=%s, cycle=%d", at.id, at.cycleNumber)
+	logger.Infof("濡絽鍟幉?Decision record saved: trader=%s, cycle=%d", at.id, at.cycleNumber)
 	return nil
 }
 
@@ -1804,7 +1844,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	// Note: Lighter API may return 0 for unrealized PnL, this is a known limitation
 	diff := math.Abs(totalUnrealizedProfit - totalUnrealizedPnLCalculated)
 	if diff > 5.0 { // Only warn if difference is significant (> 5 USDT)
-		logger.Infof("閳跨媴绗?Unrealized P&L inconsistency (Lighter API limitation): API=%.4f, Calculated=%.4f, Diff=%.4f",
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?Unrealized P&L inconsistency (Lighter API limitation): API=%.4f, Calculated=%.4f, Diff=%.4f",
 			totalUnrealizedProfit, totalUnrealizedPnLCalculated, diff)
 	}
 
@@ -1813,7 +1853,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	if at.initialBalance > 0 {
 		totalPnLPct = (totalPnL / at.initialBalance) * 100
 	} else {
-		logger.Infof("閳跨媴绗?Initial Balance abnormal: %.2f, cannot calculate P&L percentage", at.initialBalance)
+		logger.Infof("闂佸疇娉曟刊瀵哥箔?Initial Balance abnormal: %.2f, cannot calculate P&L percentage", at.initialBalance)
 	}
 
 	marginUsedPct := 0.0
@@ -1890,7 +1930,7 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 }
 
 // calculatePnLPercentage calculates P&L percentage (based on margin, automatically considers leverage)
-// Return rate = Unrealized P&L / Margin 鑴?100%
+// Return rate = Unrealized P&L / Margin 闁?100%
 func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
 	if marginUsed > 0 {
 		return (unrealizedPnl / marginUsed) * 100
@@ -1944,18 +1984,51 @@ func (at *AutoTrader) startDrawdownMonitor() {
 		ticker := time.NewTicker(1 * time.Minute) // Check every minute
 		defer ticker.Stop()
 
-		logger.Info("棣冩惓 Started position drawdown monitoring (check every minute)")
+		logger.Info("濡絽鍟幆?Started position drawdown monitoring (check every minute)")
 
 		for {
 			select {
 			case <-ticker.C:
 				at.checkPositionDrawdown()
 			case <-at.stopMonitorCh:
-				logger.Info("閳?Stopped position drawdown monitoring")
+				logger.Info("闂?Stopped position drawdown monitoring")
 				return
 			}
 		}
 	}()
+}
+
+func (at *AutoTrader) atrStopConfig() (bool, float64) {
+	if at.config.StrategyConfig == nil {
+		return false, 0
+	}
+	rc := at.config.StrategyConfig.RiskControl
+	if !rc.ATRStopEnabled {
+		return false, 0
+	}
+	multiplier := rc.ATRStopMultiplier
+	if multiplier <= 0 {
+		multiplier = 1.5
+	}
+	return true, multiplier
+}
+
+func resolveATR14FromMarketData(data *market.Data) float64 {
+	if data == nil {
+		return 0
+	}
+	if data.IntradaySeries != nil && data.IntradaySeries.ATR14 > 0 {
+		return data.IntradaySeries.ATR14
+	}
+	if data.LongerTermContext != nil {
+		if data.LongerTermContext.ATR14 > 0 {
+			return data.LongerTermContext.ATR14
+		}
+		if data.LongerTermContext.ATR3 > 0 {
+			return data.LongerTermContext.ATR3
+		}
+	}
+	return 0
 }
 
 // checkPositionDrawdown checks position drawdown situation
@@ -1963,18 +2036,64 @@ func (at *AutoTrader) checkPositionDrawdown() {
 	// Get current positions
 	positions, err := at.trader.GetPositions()
 	if err != nil {
-		logger.Infof("閴?Drawdown monitoring: failed to get positions: %v", err)
+		logger.Infof("闂?Drawdown monitoring: failed to get positions: %v", err)
 		return
 	}
 
+	atrStopEnabled, atrStopMultiplier := at.atrStopConfig()
+	atrDataCache := make(map[string]*market.Data)
+
 	for _, pos := range positions {
 		symbol := pos["symbol"].(string)
-		side := pos["side"].(string)
+		side := strings.ToLower(pos["side"].(string))
 		entryPrice := pos["entryPrice"].(float64)
 		markPrice := pos["markPrice"].(float64)
 		quantity := pos["positionAmt"].(float64)
 		if quantity < 0 {
 			quantity = -quantity // Short position quantity is negative, convert to positive
+		}
+		if quantity <= 0 || entryPrice <= 0 || markPrice <= 0 {
+			continue
+		}
+
+		// [CODE ENFORCED] ATR volatility stop-loss
+		if atrStopEnabled {
+			data, exists := atrDataCache[symbol]
+			if !exists {
+				fetched, fetchErr := market.GetWithExchange(symbol, at.exchange)
+				if fetchErr != nil {
+					logger.Infof("[ATR STOP] failed to fetch market data for %s: %v", symbol, fetchErr)
+				}
+				data = fetched
+				atrDataCache[symbol] = data
+			}
+
+			atr := resolveATR14FromMarketData(data)
+			if atr > 0 {
+				stopDistance := atr * atrStopMultiplier
+				stopPrice := 0.0
+				triggered := false
+				switch side {
+				case "long":
+					stopPrice = entryPrice - stopDistance
+					triggered = markPrice <= stopPrice
+				case "short":
+					stopPrice = entryPrice + stopDistance
+					triggered = markPrice >= stopPrice
+				}
+				if triggered {
+					logger.Infof("[ATR STOP] trigger: %s %s | mark %.6f entry %.6f atr %.6f k %.2f stop %.6f",
+						symbol, side, markPrice, entryPrice, atr, atrStopMultiplier, stopPrice)
+
+					if err := at.emergencyClosePosition(symbol, side); err != nil {
+						logger.Infof("[ATR STOP] close failed (%s %s): %v", symbol, side, err)
+					} else {
+						logger.Infof("[ATR STOP] close succeeded: %s %s", symbol, side)
+						at.ClearPeakPnLCache(symbol, side)
+					}
+					continue
+				}
+			}
 		}
 
 		// Calculate current P&L percentage
@@ -2015,20 +2134,20 @@ func (at *AutoTrader) checkPositionDrawdown() {
 
 		// Check close position condition: profit > 5% and drawdown >= 40%
 		if currentPnLPct > 5.0 && drawdownPct >= 40.0 {
-			logger.Infof("棣冩瘍 Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%%",
+			logger.Infof("濠碘槅鍋撶徊浠嬪疮椤栫偞鍎?Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 
 			// Execute close position
 			if err := at.emergencyClosePosition(symbol, side); err != nil {
-				logger.Infof("閴?Drawdown close position failed (%s %s): %v", symbol, side, err)
+				logger.Infof("闂?Drawdown close position failed (%s %s): %v", symbol, side, err)
 			} else {
-				logger.Infof("閴?Drawdown close position succeeded: %s %s", symbol, side)
+				logger.Infof("闂?Drawdown close position succeeded: %s %s", symbol, side)
 				// Clear cache for this position after closing
 				at.ClearPeakPnLCache(symbol, side)
 			}
 		} else if currentPnLPct > 5.0 {
 			// Record situations close to close position condition (for debugging)
-			logger.Infof("棣冩惓 Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
+			logger.Infof("濠碘槅鍋撶徊浠嬪疮椤栫偛绠?Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
 	}
@@ -2042,13 +2161,13 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 		if err != nil {
 			return err
 		}
-		logger.Infof("閴?Emergency close long position succeeded, order ID: %v", order["orderId"])
+		logger.Infof("闂?Emergency close long position succeeded, order ID: %v", order["orderId"])
 	case "short":
 		order, err := at.trader.CloseShort(symbol, 0) // 0 = close all
 		if err != nil {
 			return err
 		}
-		logger.Infof("閴?Emergency close short position succeeded, order ID: %v", order["orderId"])
+		logger.Infof("闂?Emergency close short position succeeded, order ID: %v", order["orderId"])
 	default:
 		return fmt.Errorf("unknown position direction: %s", side)
 	}
@@ -2117,7 +2236,7 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	}
 
 	if orderID == "" || orderID == "0" {
-		logger.Infof("  閳跨媴绗?Order ID is empty, skipping record")
+		logger.Infof("  闂佸疇娉曟刊瀵哥箔?Order ID is empty, skipping record")
 		return
 	}
 
@@ -2138,16 +2257,16 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	// This ensures accurate data from GetTrades API and avoids duplicate records
 	switch at.exchange {
 	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster", "kucoin", "gate":
-		logger.Infof("  棣冩憫 Order submitted (id: %s), will be synced by OrderSync", orderID)
+		logger.Infof("  濡絽鍟幉?Order submitted (id: %s), will be synced by OrderSync", orderID)
 		return
 	}
 
 	// For exchanges without OrderSync (e.g., Binance): record immediately and poll for fill data
 	orderRecord := at.createOrderRecord(orderID, symbol, action, positionSide, quantity, price, leverage)
 	if err := at.store.Order().CreateOrder(orderRecord); err != nil {
-		logger.Infof("  閳跨媴绗?Failed to record order: %v", err)
+		logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to record order: %v", err)
 	} else {
-		logger.Infof("  棣冩憫 Order recorded: %s [%s] %s", orderID, action, symbol)
+		logger.Infof("  濡絽鍟幉?Order recorded: %s [%s] %s", orderID, action, symbol)
 	}
 
 	// Wait for order to be filled and get actual fill data
@@ -2169,22 +2288,22 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 				if commission, ok := status["commission"].(float64); ok {
 					fee = commission
 				}
-				logger.Infof("  閴?Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
+				logger.Infof("  闂?Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
 
 				// Update order status to FILLED
 				if err := at.store.Order().UpdateOrderStatus(orderRecord.ID, "FILLED", actualQty, actualPrice, fee); err != nil {
-					logger.Infof("  閳跨媴绗?Failed to update order status: %v", err)
+					logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to update order status: %v", err)
 				}
 
 				// Record fill details
 				at.recordOrderFill(orderRecord.ID, orderID, symbol, action, actualPrice, actualQty, fee)
 				break
 			} else if statusStr == "CANCELED" || statusStr == "EXPIRED" || statusStr == "REJECTED" {
-				logger.Infof("  閳跨媴绗?Order %s, skipping position record", statusStr)
+				logger.Infof("  闂佸疇娉曟刊瀵哥箔?Order %s, skipping position record", statusStr)
 
 				// Update order status
 				if err := at.store.Order().UpdateOrderStatus(orderRecord.ID, statusStr, 0, 0, 0); err != nil {
-					logger.Infof("  閳跨媴绗?Failed to update order status: %v", err)
+					logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to update order status: %v", err)
 				}
 				return
 			}
@@ -2195,7 +2314,7 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	// Normalize symbol for position record consistency
 	normalizedSymbolForPosition := market.Normalize(symbol)
 
-	logger.Infof("  棣冩憫 Recording position (ID: %s, action: %s, price: %.6f, qty: %.6f, fee: %.4f)",
+	logger.Infof("  濡絽鍟幉?Recording position (ID: %s, action: %s, price: %.6f, qty: %.6f, fee: %.4f)",
 		orderID, action, actualPrice, actualQty, fee)
 
 	// Record position change with actual fill data (use normalized symbol)
@@ -2240,9 +2359,9 @@ func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string,
 			UpdatedAt:    nowMs,
 		}
 		if err := at.store.Position().Create(pos); err != nil {
-			logger.Infof("  閳跨媴绗?Failed to record position: %v", err)
+			logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to record position: %v", err)
 		} else {
-			logger.Infof("  棣冩惓 Position recorded [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
+			logger.Infof("  濡絽鍟幆?Position recorded [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
 		}
 
 	case "close_long", "close_short":
@@ -2257,9 +2376,9 @@ func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string,
 			quantity, price, fee, 0, // realizedPnL will be calculated
 			time.Now().UTC().UnixMilli(), orderID,
 		); err != nil {
-			logger.Infof("  閳跨媴绗?Failed to process close position: %v", err)
+			logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to process close position: %v", err)
 		} else {
-			logger.Infof("  閴?Position closed [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
+			logger.Infof("  闂?Position closed [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
 		}
 	}
 }
@@ -2373,9 +2492,9 @@ func (at *AutoTrader) recordOrderFill(orderRecordID int64, exchangeOrderID, symb
 	}
 
 	if err := at.store.Order().CreateFill(fill); err != nil {
-		logger.Infof("  閳跨媴绗?Failed to record fill: %v", err)
+		logger.Infof("  闂佸疇娉曟刊瀵哥箔?Failed to record fill: %v", err)
 	} else {
-		logger.Infof("  棣冩惖 Fill recorded: %.4f @ %.6f, fee: %.4f", quantity, price, fee)
+		logger.Infof("  濡絽鍟幆?Fill recorded: %.4f @ %.6f, fee: %.4f", quantity, price, fee)
 	}
 }
 
@@ -2438,12 +2557,12 @@ func (at *AutoTrader) enforcePositionValueRatio(positionSizeUSD float64, equity 
 		}
 	}
 
-	// Calculate max allowed position value = equity 鑴?ratio
+	// Calculate max allowed position value = equity 闁?ratio
 	maxPositionValue := equity * maxPositionValueRatio
 
 	// Check if position size exceeds limit
 	if positionSizeUSD > maxPositionValue {
-		logger.Infof("  閳跨媴绗?[RISK CONTROL] Position %.2f USDT exceeds limit (equity %.2f 鑴?%.1fx = %.2f USDT max for %s), capping",
+		logger.Infof("  闂佸疇娉曟刊瀵哥箔?[RISK CONTROL] Position %.2f USDT exceeds limit (equity %.2f 闁?%.1fx = %.2f USDT max for %s), capping",
 			positionSizeUSD, equity, maxPositionValueRatio, maxPositionValue, symbol)
 		return maxPositionValue, true
 	}
@@ -2463,7 +2582,7 @@ func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
 	}
 
 	if positionSizeUSD < minSize {
-		return fmt.Errorf("閴?[RISK CONTROL] Position %.2f USDT below minimum (%.2f USDT)", positionSizeUSD, minSize)
+		return fmt.Errorf("闂?[RISK CONTROL] Position %.2f USDT below minimum (%.2f USDT)", positionSizeUSD, minSize)
 	}
 	return nil
 }
@@ -2480,8 +2599,241 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	}
 
 	if currentPositionCount >= maxPositions {
-		return fmt.Errorf("閴?[RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
+		return fmt.Errorf("闂?[RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
 	}
+	return nil
+}
+
+const actionSkipPrefix = "SKIP: "
+
+func markActionSkipped(actionRecord *store.DecisionAction, reason string) {
+	if actionRecord == nil {
+		return
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "risk control skipped execution"
+	}
+	actionRecord.Error = actionSkipPrefix + reason
+}
+
+func actionSkipReason(actionRecord *store.DecisionAction) (string, bool) {
+	if actionRecord == nil {
+		return "", false
+	}
+	raw := strings.TrimSpace(actionRecord.Error)
+	if !strings.HasPrefix(raw, actionSkipPrefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(raw, actionSkipPrefix)), true
+}
+
+func isActionSkipped(actionRecord *store.DecisionAction) bool {
+	_, ok := actionSkipReason(actionRecord)
+	return ok
+}
+
+func appendActionWarning(actionRecord *store.DecisionAction, warning string) {
+	if actionRecord == nil {
+		return
+	}
+	warning = strings.TrimSpace(warning)
+	if warning == "" {
+		return
+	}
+	if actionRecord.Error == "" {
+		actionRecord.Error = warning
+		return
+	}
+	actionRecord.Error = actionRecord.Error + "; " + warning
+}
+
+func shouldSkipByPriceDeviation(expectedEntry, marketPrice, limitPct float64) bool {
+	if expectedEntry <= 0 || marketPrice <= 0 || limitPct <= 0 {
+		return false
+	}
+	deviationPct := math.Abs(marketPrice-expectedEntry) / expectedEntry * 100
+	return deviationPct > limitPct
+}
+
+func effectiveMinRiskRewardRatio(v float64) float64 {
+	if v <= 0 {
+		return 3.0
+	}
+	return v
+}
+
+func (at *AutoTrader) riskControlConfig() store.RiskControlConfig {
+	if at.config.StrategyConfig != nil {
+		return at.config.StrategyConfig.RiskControl
+	}
+	return store.GetDefaultStrategyConfig("en").RiskControl
+}
+
+func (at *AutoTrader) resolvePositionEntryPrice(symbol, side string, fallback float64) float64 {
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fallback
+	}
+	targetSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	targetSide := strings.ToLower(strings.TrimSpace(side))
+	for _, pos := range positions {
+		sym, _ := pos["symbol"].(string)
+		if strings.ToUpper(strings.TrimSpace(sym)) != targetSymbol {
+			continue
+		}
+		posSide, _ := pos["side"].(string)
+		if strings.ToLower(strings.TrimSpace(posSide)) != targetSide {
+			continue
+		}
+		switch v := pos["entryPrice"].(type) {
+		case float64:
+			if v > 0 {
+				return v
+			}
+		case int:
+			if v > 0 {
+				return float64(v)
+			}
+		case int64:
+			if v > 0 {
+				return float64(v)
+			}
+		}
+	}
+	return fallback
+}
+
+func (at *AutoTrader) applyPostFillRRGuard(decision *kernel.Decision, actionRecord *store.DecisionAction, side string, entry float64) error {
+	riskControl := at.riskControlConfig()
+	if !riskControl.EffectivePostFillRRRecheckEnabled() {
+		return nil
+	}
+
+	minRR := effectiveMinRiskRewardRatio(riskControl.MinRiskRewardRatio)
+	threshold := minRR - riskControl.EffectivePostFillRRTolerance()
+	if threshold < 0 {
+		threshold = 0
+	}
+
+	rr, riskPct, rewardPct, ok := store.CalculateRiskReward(decision.Action, entry, decision.StopLoss, decision.TakeProfit)
+	if ok && rr >= threshold {
+		return nil
+	}
+
+	failAction := riskControl.EffectivePostFillRROnFail()
+	msg := fmt.Sprintf("post-fill RR recheck failed [%s %s]: rr=%.2f threshold=%.2f entry=%.6f stop=%.6f tp=%.6f risk=%.2f%% reward=%.2f%% action=%s",
+		decision.Action, decision.Symbol, rr, threshold, entry, decision.StopLoss, decision.TakeProfit, riskPct, rewardPct, failAction)
+
+	switch failAction {
+	case store.PostFillRROnFailAdjustTP:
+		newTP, adjusted := store.AdjustTakeProfitForMinRR(decision.Action, entry, decision.StopLoss, minRR)
+		if !adjusted || newTP <= 0 {
+			if err := at.emergencyClosePosition(decision.Symbol, side); err != nil {
+				return fmt.Errorf("%s; adjust_tp failed and emergency close failed: %w", msg, err)
+			}
+			markActionSkipped(actionRecord, msg+"; adjust_tp failed, position closed")
+			return nil
+		}
+		decision.TakeProfit = newTP
+		actionRecord.TakeProfit = newTP
+		logger.Infof("[RISK CONTROL] %s; adjusted take_profit to %.6f", msg, newTP)
+		return nil
+	case store.PostFillRROnFailCloseImmediately:
+		if err := at.emergencyClosePosition(decision.Symbol, side); err != nil {
+			return fmt.Errorf("%s; close_immediately failed: %w", msg, err)
+		}
+		markActionSkipped(actionRecord, msg+"; position closed immediately")
+		return nil
+	case store.PostFillRROnFailAlertOnly:
+		logger.Warnf("[RISK CONTROL] %s; kept position due alert_only", msg)
+		appendActionWarning(actionRecord, msg)
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (at *AutoTrader) retryProtectionOrder(kind string, retryCount int, interval time.Duration, place func() error) error {
+	attempts := retryCount + 1
+	if attempts <= 0 {
+		attempts = 1
+	}
+	var lastErr error
+	for i := 1; i <= attempts; i++ {
+		if err := place(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			logger.Warnf("[RISK CONTROL] %s placement failed (%d/%d): %v", kind, i, attempts, err)
+		}
+		if i < attempts && interval > 0 {
+			time.Sleep(interval)
+		}
+	}
+	return fmt.Errorf("%s placement failed after %d attempts: %w", kind, attempts, lastErr)
+}
+
+func (at *AutoTrader) applyProtectionOrders(decision *kernel.Decision, actionRecord *store.DecisionAction, positionSide, side string, quantity float64) error {
+	riskControl := at.riskControlConfig()
+	retries := riskControl.EffectiveSLTPRetryCount()
+	interval := time.Duration(riskControl.EffectiveSLTPRetryIntervalMs()) * time.Millisecond
+
+	var slErr error
+	if decision.StopLoss <= 0 {
+		slErr = fmt.Errorf("invalid stop loss %.6f", decision.StopLoss)
+	} else {
+		slErr = at.retryProtectionOrder("stop_loss", retries, interval, func() error {
+			return at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss)
+		})
+	}
+	if slErr != nil {
+		onSLFail := riskControl.EffectiveOnSLFail()
+		msg := fmt.Sprintf("stop_loss setup failed [%s %s]: %v (on_sl_fail=%s)", decision.Action, decision.Symbol, slErr, onSLFail)
+		switch onSLFail {
+		case store.SLTPFailActionCloseImmediately:
+			if err := at.emergencyClosePosition(decision.Symbol, side); err != nil {
+				return fmt.Errorf("%s; emergency close failed: %w", msg, err)
+			}
+			return fmt.Errorf("%s; position closed immediately", msg)
+		case store.SLTPFailActionAlertOnly:
+			logger.Warnf("[RISK CONTROL] %s", msg)
+			appendActionWarning(actionRecord, msg)
+		default:
+			logger.Warnf("[RISK CONTROL] %s", msg)
+			appendActionWarning(actionRecord, msg)
+		}
+	}
+
+	var tpErr error
+	if decision.TakeProfit <= 0 {
+		tpErr = fmt.Errorf("invalid take profit %.6f", decision.TakeProfit)
+	} else {
+		tpErr = at.retryProtectionOrder("take_profit", retries, interval, func() error {
+			return at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit)
+		})
+	}
+	if tpErr != nil {
+		onTPFail := riskControl.EffectiveOnTPFail()
+		msg := fmt.Sprintf("take_profit setup failed [%s %s]: %v (on_tp_fail=%s)", decision.Action, decision.Symbol, tpErr, onTPFail)
+		switch onTPFail {
+		case store.SLTPFailActionCloseImmediately:
+			if err := at.emergencyClosePosition(decision.Symbol, side); err != nil {
+				return fmt.Errorf("%s; emergency close failed: %w", msg, err)
+			}
+			return fmt.Errorf("%s; position closed immediately", msg)
+		case store.SLTPFailActionAlertOnly:
+			logger.Warnf("[RISK CONTROL] %s", msg)
+			appendActionWarning(actionRecord, msg)
+		case store.SLTPFailActionKeepWithSLRetry:
+			logger.Warnf("[RISK CONTROL] %s; keep position with SL if available", msg)
+			appendActionWarning(actionRecord, msg)
+		default:
+			logger.Warnf("[RISK CONTROL] %s", msg)
+			appendActionWarning(actionRecord, msg)
+		}
+	}
+
 	return nil
 }
 

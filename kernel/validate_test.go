@@ -22,8 +22,9 @@ func TestLeverageFallback(t *testing.T) {
 				Action:          "open_long",
 				Leverage:        20, // Exceeds limit
 				PositionSizeUSD: 100,
+				EntryPrice:      100,
 				StopLoss:        50,
-				TakeProfit:      200,
+				TakeProfit:      260,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -38,8 +39,9 @@ func TestLeverageFallback(t *testing.T) {
 				Action:          "open_long",
 				Leverage:        20, // Exceeds limit
 				PositionSizeUSD: 1000,
+				EntryPrice:      100000,
 				StopLoss:        90000,
-				TakeProfit:      110000,
+				TakeProfit:      130000,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10, // Limit 10x
@@ -54,8 +56,9 @@ func TestLeverageFallback(t *testing.T) {
 				Action:          "open_short",
 				Leverage:        5, // Not exceeded
 				PositionSizeUSD: 500,
+				EntryPrice:      3500,
 				StopLoss:        4000,
-				TakeProfit:      3000,
+				TakeProfit:      2000,
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -70,6 +73,7 @@ func TestLeverageFallback(t *testing.T) {
 				Action:          "open_long",
 				Leverage:        0, // Invalid
 				PositionSizeUSD: 100,
+				EntryPrice:      100,
 				StopLoss:        50,
 				TakeProfit:      200,
 			},

@@ -26,11 +26,27 @@ func isAdminRole(c *gin.Context) bool {
 func validateStrategyConfig(config *store.StrategyConfig) []string {
 	var warnings []string
 
-	// Validate NofxOS API key if any NofxOS feature is enabled
-	if (config.Indicators.EnableQuantData || config.Indicators.EnableOIRanking ||
-		config.Indicators.EnableNetFlowRanking || config.Indicators.EnablePriceRanking) &&
-		config.Indicators.NofxOSAPIKey == "" {
-		warnings = append(warnings, "NofxOS API key is not configured. NofxOS data sources may not work properly.")
+	legacyNofxNeeded := config.CoinSource.SourceType == "ai500" ||
+		config.CoinSource.UseAI500
+
+	// Quant data now prefers public exchange APIs, key is optional there.
+	if config.Indicators.EnableQuantData && strings.TrimSpace(config.Indicators.NofxOSAPIKey) != "" {
+		warnings = append(warnings, "nofxos_api_key is deprecated for quant data and can be left empty.")
+	}
+	if (config.Indicators.EnableOIRanking ||
+		config.Indicators.EnableNetFlowRanking ||
+		config.Indicators.EnablePriceRanking ||
+		config.CoinSource.SourceType == "oi_top" ||
+		config.CoinSource.SourceType == "oi_low" ||
+		config.CoinSource.UseOITop ||
+		config.CoinSource.UseOILow) &&
+		strings.TrimSpace(config.Indicators.NofxOSAPIKey) != "" {
+		warnings = append(warnings, "nofxos_api_key is not needed for OI/NetFlow/Price ranking and OI coin source modes.")
+	}
+
+	// Legacy NofxOS-only features may still require the key.
+	if legacyNofxNeeded && strings.TrimSpace(config.Indicators.NofxOSAPIKey) == "" {
+		warnings = append(warnings, "NofxOS API key is not configured. Legacy feature AI500 may not work properly.")
 	}
 
 	return warnings
@@ -41,6 +57,39 @@ func validateStrategyConfigErrors(config *store.StrategyConfig) []string {
 	var errs []string
 	if config == nil {
 		return []string{"strategy config is required"}
+	}
+
+	if config.RiskControl.ATRStopEnabled && config.RiskControl.ATRStopMultiplier <= 0 {
+		errs = append(errs, "risk_control.atr_stop_multiplier must be > 0 when atr_stop_enabled is true")
+	}
+	if config.RiskControl.PriceDeviationLimitPct < 0 {
+		errs = append(errs, "risk_control.price_deviation_limit_pct must be >= 0")
+	}
+	if config.RiskControl.PostFillRRTolerance < 0 {
+		errs = append(errs, "risk_control.post_fill_rr_tolerance must be >= 0")
+	}
+	if config.RiskControl.SLTPRetryCount < 0 {
+		errs = append(errs, "risk_control.sltp_retry_count must be >= 0")
+	}
+	if config.RiskControl.SLTPRetryIntervalMs < 0 {
+		errs = append(errs, "risk_control.sltp_retry_interval_ms must be >= 0")
+	}
+	if v := strings.ToLower(strings.TrimSpace(config.RiskControl.PostFillRROnFail)); v != "" &&
+		v != store.PostFillRROnFailAdjustTP &&
+		v != store.PostFillRROnFailCloseImmediately &&
+		v != store.PostFillRROnFailAlertOnly {
+		errs = append(errs, "risk_control.post_fill_rr_on_fail must be one of: adjust_tp, close_immediately, alert_only")
+	}
+	if v := strings.ToLower(strings.TrimSpace(config.RiskControl.OnSLFail)); v != "" &&
+		v != store.SLTPFailActionCloseImmediately &&
+		v != store.SLTPFailActionAlertOnly {
+		errs = append(errs, "risk_control.on_sl_fail must be one of: close_immediately, alert_only")
+	}
+	if v := strings.ToLower(strings.TrimSpace(config.RiskControl.OnTPFail)); v != "" &&
+		v != store.SLTPFailActionKeepWithSLRetry &&
+		v != store.SLTPFailActionCloseImmediately &&
+		v != store.SLTPFailActionAlertOnly {
+		errs = append(errs, "risk_control.on_tp_fail must be one of: keep_with_sl_and_retry, close_immediately, alert_only")
 	}
 
 	if config.StrategyType == "grid_trading" {

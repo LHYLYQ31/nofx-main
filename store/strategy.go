@@ -155,8 +155,9 @@ type IndicatorConfig struct {
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
-	// ========== NofxOS Unified API Configuration ==========
-	// Unified API Key for all NofxOS data sources
+	// ========== Legacy NofxOS API Configuration ==========
+	// Deprecated for quant_data path (public exchange endpoints are preferred).
+	// Still used by legacy AI500 source only.
 	NofxOSAPIKey string `json:"nofxos_api_key,omitempty"`
 
 	// quantitative data sources (capital flow, position changes, price changes)
@@ -231,6 +232,105 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
+
+	// ATR volatility stop-loss (CODE ENFORCED when enabled)
+	ATRStopEnabled bool `json:"atr_stop_enabled"`
+	// Stop distance = ATR(14) * multiplier, e.g. 1.5
+	ATRStopMultiplier float64 `json:"atr_stop_multiplier"`
+
+	// Execution guards (generic, strategy-agnostic)
+	// If market/expected fill deviates too much from AI entry_price, skip opening.
+	PriceDeviationLimitPct float64 `json:"price_deviation_limit_pct"`
+	// Recheck RR using real fill/market entry after order is placed.
+	PostFillRRRecheckEnabled bool `json:"post_fill_rr_recheck_enabled"`
+	// Allowed RR degradation after fill. Effective threshold = min_risk_reward_ratio - tolerance.
+	PostFillRRTolerance float64 `json:"post_fill_rr_tolerance"`
+	// Action when post-fill RR still fails: adjust_tp | close_immediately | alert_only
+	PostFillRROnFail string `json:"post_fill_rr_on_fail"`
+	// Retry protection order placement N times.
+	SLTPRetryCount int `json:"sltp_retry_count"`
+	// Wait interval between retries in milliseconds.
+	SLTPRetryIntervalMs int `json:"sltp_retry_interval_ms"`
+	// Action when stop-loss placement still fails after retries: close_immediately | alert_only
+	OnSLFail string `json:"on_sl_fail"`
+	// Action when take-profit placement still fails after retries: keep_with_sl_and_retry | close_immediately | alert_only
+	OnTPFail string `json:"on_tp_fail"`
+}
+
+const (
+	PostFillRROnFailAdjustTP         = "adjust_tp"
+	PostFillRROnFailCloseImmediately = "close_immediately"
+	PostFillRROnFailAlertOnly        = "alert_only"
+
+	SLTPFailActionCloseImmediately = "close_immediately"
+	SLTPFailActionAlertOnly        = "alert_only"
+	SLTPFailActionKeepWithSLRetry  = "keep_with_sl_and_retry"
+)
+
+func (rc RiskControlConfig) EffectivePriceDeviationLimitPct() float64 {
+	if rc.PriceDeviationLimitPct <= 0 {
+		return 0.35
+	}
+	return rc.PriceDeviationLimitPct
+}
+
+func (rc RiskControlConfig) EffectivePostFillRRTolerance() float64 {
+	if rc.PostFillRRTolerance <= 0 {
+		return 0.10
+	}
+	return rc.PostFillRRTolerance
+}
+
+func (rc RiskControlConfig) EffectivePostFillRRRecheckEnabled() bool {
+	// Backward compatibility: old configs may have missing fields decoded as zero values.
+	// When all post-fill RR fields are empty/zero, enable by default.
+	if !rc.PostFillRRRecheckEnabled &&
+		strings.TrimSpace(rc.PostFillRROnFail) == "" &&
+		rc.PostFillRRTolerance == 0 {
+		return true
+	}
+	return rc.PostFillRRRecheckEnabled
+}
+
+func (rc RiskControlConfig) EffectivePostFillRROnFail() string {
+	switch strings.ToLower(strings.TrimSpace(rc.PostFillRROnFail)) {
+	case PostFillRROnFailAdjustTP, PostFillRROnFailCloseImmediately, PostFillRROnFailAlertOnly:
+		return strings.ToLower(strings.TrimSpace(rc.PostFillRROnFail))
+	default:
+		return PostFillRROnFailAdjustTP
+	}
+}
+
+func (rc RiskControlConfig) EffectiveSLTPRetryCount() int {
+	if rc.SLTPRetryCount <= 0 {
+		return 3
+	}
+	return rc.SLTPRetryCount
+}
+
+func (rc RiskControlConfig) EffectiveSLTPRetryIntervalMs() int {
+	if rc.SLTPRetryIntervalMs <= 0 {
+		return 1000
+	}
+	return rc.SLTPRetryIntervalMs
+}
+
+func (rc RiskControlConfig) EffectiveOnSLFail() string {
+	switch strings.ToLower(strings.TrimSpace(rc.OnSLFail)) {
+	case SLTPFailActionCloseImmediately, SLTPFailActionAlertOnly:
+		return strings.ToLower(strings.TrimSpace(rc.OnSLFail))
+	default:
+		return SLTPFailActionCloseImmediately
+	}
+}
+
+func (rc RiskControlConfig) EffectiveOnTPFail() string {
+	switch strings.ToLower(strings.TrimSpace(rc.OnTPFail)) {
+	case SLTPFailActionKeepWithSLRetry, SLTPFailActionCloseImmediately, SLTPFailActionAlertOnly:
+		return strings.ToLower(strings.TrimSpace(rc.OnTPFail))
+	default:
+		return SLTPFailActionKeepWithSLRetry
+	}
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -289,8 +389,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
 			BOLLPeriods:       []int{20},
-			// NofxOS unified API key
-			NofxOSAPIKey: "cm_568c67eae410d912c54c",
+			// Legacy key for AI500 source only; keep empty by default.
+			NofxOSAPIKey: "",
 			// Quant data
 			EnableQuantData:    true,
 			EnableQuantOI:      true,
@@ -318,6 +418,16 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
 			MinConfidence:                75,  // Min 75% confidence (AI guided)
+			ATRStopEnabled:               false,
+			ATRStopMultiplier:            1.5,
+			PriceDeviationLimitPct:       0.35,
+			PostFillRRRecheckEnabled:     true,
+			PostFillRRTolerance:          0.10,
+			PostFillRROnFail:             PostFillRROnFailAdjustTP,
+			SLTPRetryCount:               3,
+			SLTPRetryIntervalMs:          1000,
+			OnSLFail:                     SLTPFailActionCloseImmediately,
+			OnTPFail:                     SLTPFailActionKeepWithSLRetry,
 		},
 	}
 

@@ -4,8 +4,10 @@
 package nofxos
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"nofx/security"
 	"strings"
 	"sync"
@@ -17,6 +19,8 @@ const (
 	DefaultBaseURL = "https://nofxos.ai"
 	DefaultTimeout = 30 * time.Second
 	DefaultAuthKey = "cm_568c67eae410d912c54c"
+	BinanceBaseURL = "https://fapi.binance.com"
+	BybitBaseURL   = "https://api.bybit.com"
 )
 
 // Client is the NofxOS API client
@@ -48,9 +52,6 @@ func DefaultClient() *Client {
 func NewClient(baseURL, authKey string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
-	}
-	if authKey == "" {
-		authKey = DefaultAuthKey
 	}
 	return &Client{
 		BaseURL: baseURL,
@@ -118,6 +119,35 @@ func (c *Client) doRequest(endpoint string) ([]byte, error) {
 			StatusCode: resp.StatusCode,
 			Message:    string(body),
 		}
+	}
+
+	return body, nil
+}
+
+// doPublicRequest performs a public HTTP GET request without auth key.
+func (c *Client) doPublicRequest(baseURL, endpoint string, query url.Values) ([]byte, error) {
+	c.mu.RLock()
+	timeout := c.Timeout
+	c.mu.RUnlock()
+
+	target := strings.TrimRight(baseURL, "/") + endpoint
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+
+	resp, err := security.SafeGet(target, timeout)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return body, fmt.Errorf("public request failed (%d): %s", resp.StatusCode, string(body))
 	}
 
 	return body, nil
