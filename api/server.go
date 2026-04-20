@@ -172,6 +172,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/strategies/public", s.handlePublicStrategies)
 		api.GET("/backtest/showcase/wall", s.handlePublicBacktestShowcaseWall)
 		api.GET("/memberships/plans", s.handleMembershipPlans)
+		api.GET("/analysis/dataset", s.handlePublicAnalysisDataset)
 
 		// Authentication related routes (no authentication required)
 		api.POST("/register", s.handleRegister)
