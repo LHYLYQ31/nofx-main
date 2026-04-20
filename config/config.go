@@ -36,6 +36,12 @@ type Config struct {
 	DBBackupRetentionDays   int
 	DBBackupOnStartup       bool
 
+	// Payment order reconcile configuration
+	PaymentReconcileEnabled         bool
+	PaymentReconcileIntervalSeconds int
+	PaymentReconcileStaleMinutes    int
+	PaymentReconcileBatchSize       int
+
 	// Security configuration
 	// TransportEncryption enables browser-side encryption for API keys
 	// Requires HTTPS or localhost. Set to false for HTTP access via IP.
@@ -86,12 +92,16 @@ func Init() {
 		DBName:    "nofx",
 		DBSSLMode: "disable",
 		// Backup defaults (effective for SQLite; PostgreSQL logs a warning and skips)
-		DBBackupEnabled:         true,
-		DBBackupIntervalMinutes: 60,
-		DBBackupDir:             "data/backups",
-		DBBackupRetentionDays:   7,
-		DBBackupOnStartup:       true,
-		SMTPPort:                587,
+		DBBackupEnabled:                 true,
+		DBBackupIntervalMinutes:         60,
+		DBBackupDir:                     "data/backups",
+		DBBackupRetentionDays:           3,
+		DBBackupOnStartup:               true,
+		PaymentReconcileEnabled:         true,
+		PaymentReconcileIntervalSeconds: 60,
+		PaymentReconcileStaleMinutes:    2,
+		PaymentReconcileBatchSize:       50,
+		SMTPPort:                        587,
 	}
 
 	// Load from environment variables
@@ -197,6 +207,24 @@ func Init() {
 	}
 	if v := os.Getenv("DB_BACKUP_ON_STARTUP"); v != "" {
 		cfg.DBBackupOnStartup = strings.ToLower(v) != "false"
+	}
+	if v := os.Getenv("PAYMENT_RECONCILE_ENABLED"); v != "" {
+		cfg.PaymentReconcileEnabled = strings.ToLower(v) != "false"
+	}
+	if v := os.Getenv("PAYMENT_RECONCILE_INTERVAL_SECONDS"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			cfg.PaymentReconcileIntervalSeconds = sec
+		}
+	}
+	if v := os.Getenv("PAYMENT_RECONCILE_STALE_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			cfg.PaymentReconcileStaleMinutes = mins
+		}
+	}
+	if v := os.Getenv("PAYMENT_RECONCILE_BATCH_SIZE"); v != "" {
+		if size, err := strconv.Atoi(v); err == nil && size > 0 {
+			cfg.PaymentReconcileBatchSize = size
+		}
 	}
 
 	global = cfg
