@@ -34,6 +34,7 @@ type analysisDatasetParams struct {
 	IncludeDecisions    bool     `json:"include_decisions"`
 	RunIDs              []string `json:"run_ids,omitempty"`
 	TraderIDs           []string `json:"trader_ids,omitempty"`
+	TraderNames         []string `json:"trader_names,omitempty"`
 }
 
 type analysisBacktestDataset struct {
@@ -125,6 +126,7 @@ func (s *Server) handlePublicAnalysisDataset(c *gin.Context) {
 
 	runFilter, runIDs := parseCSVSet(c.Query("run_ids"))
 	traderFilter, traderIDs := parseCSVSet(c.Query("trader_ids"))
+	traderNameFilter, traderNames := parseCSVLowerSet(c.Query("trader_names"))
 
 	resp := analysisDatasetResponse{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -140,6 +142,7 @@ func (s *Server) handlePublicAnalysisDataset(c *gin.Context) {
 			IncludeDecisions:    includeDecisions,
 			RunIDs:              runIDs,
 			TraderIDs:           traderIDs,
+			TraderNames:         traderNames,
 		},
 		Backtests: make([]analysisBacktestDataset, 0),
 		Traders:   make([]analysisTraderLiveDataset, 0),
@@ -240,17 +243,20 @@ func (s *Server) handlePublicAnalysisDataset(c *gin.Context) {
 		return
 	}
 	selectedTraders := make([]*store.Trader, 0, len(allTraders))
+	hasTraderFilter := len(traderFilter) > 0 || len(traderNameFilter) > 0
 	for _, t := range allTraders {
 		if t == nil {
 			continue
 		}
-		if len(traderFilter) > 0 {
-			if _, ok := traderFilter[t.ID]; !ok {
+		if hasTraderFilter {
+			_, matchID := traderFilter[t.ID]
+			_, matchName := traderNameFilter[strings.ToLower(strings.TrimSpace(t.Name))]
+			if !matchID && !matchName {
 				continue
 			}
 		}
 		selectedTraders = append(selectedTraders, t)
-		if len(traderFilter) == 0 && len(selectedTraders) >= traderLimit {
+		if !hasTraderFilter && len(selectedTraders) >= traderLimit {
 			break
 		}
 	}
@@ -397,6 +403,24 @@ func parseCSVSet(raw string) (map[string]struct{}, []string) {
 		}
 		set[v] = struct{}{}
 		items = append(items, v)
+	}
+	return set, items
+}
+
+func parseCSVLowerSet(raw string) (map[string]struct{}, []string) {
+	set := map[string]struct{}{}
+	items := []string{}
+	for _, p := range strings.Split(raw, ",") {
+		original := strings.TrimSpace(p)
+		if original == "" {
+			continue
+		}
+		key := strings.ToLower(original)
+		if _, exists := set[key]; exists {
+			continue
+		}
+		set[key] = struct{}{}
+		items = append(items, original)
 	}
 	return set, items
 }
