@@ -572,6 +572,11 @@ func (at *AutoTrader) isAlertOnlyMode() bool {
 	return store.NormalizeTraderExecutionMode(at.config.ExecutionMode) == store.TraderExecutionModeAlertOnly
 }
 
+func (at *AutoTrader) notificationsEnabled() bool {
+	mode := store.NormalizeTraderExecutionMode(at.config.ExecutionMode)
+	return mode == store.TraderExecutionModeAlertOnly || mode == store.TraderExecutionModeLiveAndAlert
+}
+
 func (at *AutoTrader) estimateCloseQuantity(symbol, side string) float64 {
 	positions, err := at.trader.GetPositions()
 	if err != nil {

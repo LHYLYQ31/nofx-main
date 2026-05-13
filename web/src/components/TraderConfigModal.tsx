@@ -31,7 +31,7 @@ interface FormState {
   ai_model: string
   exchange_id: string
   strategy_id: string
-  execution_mode: TraderExecutionMode
+  execution_mode: TraderExecutionMode | ''
   is_cross_margin: boolean
   show_in_competition: boolean
   scan_interval_minutes: number
@@ -181,6 +181,14 @@ export function TraderConfigModal({
 
     setIsSaving(true)
     try {
+      // At least one of live trading or notify must be selected when the
+      // capability is available.
+      if (canUseAlertOnly && !formData.execution_mode) {
+        toast.error('请至少选择一种模式（实盘交易或通知推送）')
+        setIsSaving(false)
+        return
+      }
+
       const saveData: CreateTraderRequest = {
         name: formData.trader_name,
         ai_model_id: formData.ai_model,
@@ -500,40 +508,81 @@ export function TraderConfigModal({
                 </p>
               </div>
 
-              {canUseAlertOnly && (
-                <div>
-                  <label className="text-sm text-[#EAECEF] block mb-2">
-                    Execution Mode
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleInputChange('execution_mode', 'live')}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${
-                        formData.execution_mode === 'live'
-                          ? 'bg-[#F0B90B] text-black'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                      }`}
-                    >
-                      Live Trading
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInputChange('execution_mode', 'alert_only')}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${
-                        formData.execution_mode === 'alert_only'
-                          ? 'bg-[#F0B90B] text-black'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                      }`}
-                    >
-                      Notify Only
-                    </button>
+              {canUseAlertOnly && (() => {
+                const liveSelected =
+                  formData.execution_mode === 'live' ||
+                  formData.execution_mode === 'live_and_alert'
+                const notifySelected =
+                  formData.execution_mode === 'alert_only' ||
+                  formData.execution_mode === 'live_and_alert'
+
+                const toggleLive = () => {
+                  const nextLive = !liveSelected
+                  let mode: TraderExecutionMode | '' = ''
+                  if (nextLive && notifySelected) mode = 'live_and_alert'
+                  else if (nextLive) mode = 'live'
+                  else if (notifySelected) mode = 'alert_only'
+                  handleInputChange('execution_mode', mode)
+                }
+                const toggleNotify = () => {
+                  const nextNotify = !notifySelected
+                  let mode: TraderExecutionMode | '' = ''
+                  if (liveSelected && nextNotify) mode = 'live_and_alert'
+                  else if (liveSelected) mode = 'live'
+                  else if (nextNotify) mode = 'alert_only'
+                  handleInputChange('execution_mode', mode)
+                }
+
+                const checkboxBase =
+                  'flex-1 px-3 py-2 rounded text-sm flex items-center justify-center gap-2 cursor-pointer transition-colors'
+                const checkboxOn = 'bg-[#F0B90B] text-black'
+                const checkboxOff = 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+
+                return (
+                  <div>
+                    <label className="text-sm text-[#EAECEF] block mb-2">
+                      执行模式 (可同时选择)
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleLive}
+                        className={`${checkboxBase} ${liveSelected ? checkboxOn : checkboxOff}`}
+                      >
+                        <span
+                          className={`inline-block w-4 h-4 rounded border ${
+                            liveSelected
+                              ? 'bg-black border-black text-[#F0B90B]'
+                              : 'border-[#848E9C]'
+                          } flex items-center justify-center text-[10px] leading-none`}
+                        >
+                          {liveSelected ? '✓' : ''}
+                        </span>
+                        实盘交易
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleNotify}
+                        className={`${checkboxBase} ${notifySelected ? checkboxOn : checkboxOff}`}
+                      >
+                        <span
+                          className={`inline-block w-4 h-4 rounded border ${
+                            notifySelected
+                              ? 'bg-black border-black text-[#F0B90B]'
+                              : 'border-[#848E9C]'
+                          } flex items-center justify-center text-[10px] leading-none`}
+                        >
+                          {notifySelected ? '✓' : ''}
+                        </span>
+                        通知推送
+                      </button>
+                    </div>
+                    <p className="text-xs text-[#848E9C] mt-1">
+                      同时勾选两项后，会执行实盘下单并向 Discord 推送策略信号；至少需要选择一项。
+                    </p>
                   </div>
-                  <p className="text-xs text-[#848E9C] mt-1">
-                    Notify-only mode evaluates strategy in real time and sends Discord signals without placing real orders.
-                  </p>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Initial Balance (Edit mode only) */}
               {isEditMode && (

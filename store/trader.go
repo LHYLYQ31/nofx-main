@@ -47,14 +47,17 @@ type Trader struct {
 }
 
 const (
-	TraderExecutionModeLive      = "live"
-	TraderExecutionModeAlertOnly = "alert_only"
+	TraderExecutionModeLive         = "live"
+	TraderExecutionModeAlertOnly    = "alert_only"
+	TraderExecutionModeLiveAndAlert = "live_and_alert"
 )
 
 func NormalizeTraderExecutionMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case TraderExecutionModeAlertOnly:
 		return TraderExecutionModeAlertOnly
+	case TraderExecutionModeLiveAndAlert:
+		return TraderExecutionModeLiveAndAlert
 	default:
 		return TraderExecutionModeLive
 	}

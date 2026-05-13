@@ -1155,10 +1155,16 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                           style={
                             trader.execution_mode === 'alert_only'
                               ? { background: 'rgba(99, 102, 241, 0.18)', color: '#818CF8' }
+                              : trader.execution_mode === 'live_and_alert'
+                              ? { background: 'rgba(240, 185, 11, 0.18)', color: '#F0B90B' }
                               : { background: 'rgba(14, 203, 129, 0.16)', color: '#0ECB81' }
                           }
                         >
-                          {trader.execution_mode === 'alert_only' ? '仅通知模式' : '实盘模式'}
+                          {trader.execution_mode === 'alert_only'
+                            ? '仅通知模式'
+                            : trader.execution_mode === 'live_and_alert'
+                            ? '实盘+通知'
+                            : '实盘模式'}
                         </span>
                       </div>
                     </div>

@@ -16,7 +16,7 @@ export interface SystemStatus {
   grid_symbol?: string
 }
 
-export type TraderExecutionMode = 'live' | 'alert_only'
+export type TraderExecutionMode = 'live' | 'alert_only' | 'live_and_alert'
 
 export interface AccountInfo {
   total_equity: number

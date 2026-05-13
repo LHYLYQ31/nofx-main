@@ -60,9 +60,9 @@ func (at *AutoTrader) notifyStrategySignal(decision *kernel.Decision, actionReco
 	if at == nil || at.store == nil || decision == nil || actionRecord == nil {
 		return
 	}
-	// Discord signal notifications are only sent in dedicated alert-only mode.
-	// Live trading mode must not push strategy signals to Discord.
-	if !at.isAlertOnlyMode() {
+	// Discord signal notifications are sent when notifications are enabled
+	// (alert_only mode, or live_and_alert mode that combines live trading with alerts).
+	if !at.notificationsEnabled() {
 		return
 	}
 	if strings.TrimSpace(at.strategyID) == "" || strings.TrimSpace(at.userEmail) == "" {
