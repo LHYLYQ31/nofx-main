@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -153,40 +154,37 @@ func backupSQLiteDatabase(st *Store, dbPath, backupDir string) (string, error) {
 }
 
 func cleanupOldBackupFiles(backupDir string, retentionDays int) (int, error) {
-	if retentionDays <= 0 {
-		return 0, nil
-	}
-
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
 		return 0, err
 	}
 
-	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-	removed := 0
-	var firstErr error
-
+	var backupFiles []os.DirEntry
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, dbBackupFilePrefix) || !strings.HasSuffix(name, dbBackupFileSuffix) {
-			continue
+		if strings.HasPrefix(name, dbBackupFilePrefix) && strings.HasSuffix(name, dbBackupFileSuffix) {
+			backupFiles = append(backupFiles, entry)
 		}
+	}
 
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			if firstErr == nil {
-				firstErr = infoErr
-			}
-			continue
-		}
-		if info.ModTime().After(cutoff) {
-			continue
-		}
+	if len(backupFiles) <= 1 {
+		return 0, nil
+	}
 
-		path := filepath.Join(backupDir, name)
+	sort.Slice(backupFiles, func(i, j int) bool {
+		infoI, _ := backupFiles[i].Info()
+		infoJ, _ := backupFiles[j].Info()
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	removed := 0
+	var firstErr error
+
+	for i := 1; i < len(backupFiles); i++ {
+		path := filepath.Join(backupDir, backupFiles[i].Name())
 		if removeErr := os.Remove(path); removeErr != nil {
 			if firstErr == nil {
 				firstErr = removeErr
